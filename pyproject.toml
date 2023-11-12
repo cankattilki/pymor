@@ -219,6 +219,7 @@ select = [
   "ICN", # flake8-import-conventions
   "PT", # flake8-pytest-style
   "Q", # flake8-quotes
+  "NPY", # NumPy-specific rules
 ]
 ignore = [
   "D100", # missing docstring in public module
