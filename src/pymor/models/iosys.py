@@ -16,7 +16,7 @@ from pymor.algorithms.lyapunov import (
     solve_disc_lyap_dense,
     solve_disc_lyap_lrcf,
 )
-from pymor.algorithms.riccati import solve_pos_ricc_lrcf, solve_ricc_lrcf
+from pymor.algorithms.riccati import solve_pos_ricc_dense, solve_pos_ricc_lrcf, solve_ricc_lrcf
 from pymor.algorithms.simplify import contract, expand
 from pymor.algorithms.timestepping import DiscreteTimeStepper, TimeStepper
 from pymor.algorithms.to_matrix import to_matrix
@@ -36,7 +36,6 @@ from pymor.operators.block import (
 )
 from pymor.operators.constructions import (
     IdentityOperator,
-    InverseOperator,
     LincombOperator,
     LinearInputOperator,
     LowRankOperator,
@@ -219,7 +218,8 @@ class LTIModel(Model):
             presets = {}
 
         assert solver_options is None or solver_options.keys() <= {'lyap_lrcf', 'lyap_dense',
-                                                                   'ricc_lrcf', 'ricc_dense', 'ricc_pos_lrcf'}
+                                                                   'ricc_lrcf', 'ricc_dense',
+                                                                   'ricc_pos_dense', 'ricc_pos_lrcf'}
 
         super().__init__(dim_input=B.source.dim, error_estimator=error_estimator, visualizer=visualizer, name=name)
         self.__auto_init(locals())
@@ -339,8 +339,16 @@ class LTIModel(Model):
                    time_stepper=time_stepper, num_values=num_values, presets=presets,
                    solver_options=solver_options, error_estimator=error_estimator, visualizer=visualizer, name=name)
 
-    def to_matrices(self):
+    def to_matrices(self, format=None):
         """Return operators as matrices.
+
+        Parameters
+        ----------
+        format
+            Format of the resulting matrices: |NumPy array| if 'dense',
+            otherwise the appropriate |SciPy spmatrix|.
+            If `None`, a choice between dense and sparse format is
+            automatically made.
 
         Returns
         -------
@@ -355,11 +363,37 @@ class LTIModel(Model):
         E
             The |NumPy array| or |SciPy spmatrix| E or `None` (if E is an `IdentityOperator`).
         """
-        A = to_matrix(self.A)
-        B = to_matrix(self.B)
-        C = to_matrix(self.C)
-        D = None if isinstance(self.D, ZeroOperator) else to_matrix(self.D)
-        E = None if isinstance(self.E, IdentityOperator) else to_matrix(self.E)
+        return self.to_abcde_matrices(format)
+
+    def to_abcde_matrices(self, format=None):
+        """Return A, B, C, D, and E operators as matrices.
+
+        Parameters
+        ----------
+        format
+            Format of the resulting matrices: |NumPy array| if 'dense',
+            otherwise the appropriate |SciPy spmatrix|.
+            If `None`, a choice between dense and sparse format is
+            automatically made.
+
+        Returns
+        -------
+        A
+            The |NumPy array| or |SciPy spmatrix| A.
+        B
+            The |NumPy array| or |SciPy spmatrix| B.
+        C
+            The |NumPy array| or |SciPy spmatrix| C.
+        D
+            The |NumPy array| or |SciPy spmatrix| D or `None` (if D is a `ZeroOperator`).
+        E
+            The |NumPy array| or |SciPy spmatrix| E or `None` (if E is an `IdentityOperator`).
+        """
+        A = to_matrix(self.A, format)
+        B = to_matrix(self.B, format)
+        C = to_matrix(self.C, format)
+        D = None if isinstance(self.D, ZeroOperator) else to_matrix(self.D, format)
+        E = None if isinstance(self.E, IdentityOperator) else to_matrix(self.E, format)
         return A, B, C, D, E
 
     @classmethod
@@ -513,7 +547,8 @@ class LTIModel(Model):
         import scipy.io as spio
         mat_dict = spio.loadmat(file_name)
 
-        assert 'A' in mat_dict and 'B' in mat_dict
+        assert 'A' in mat_dict
+        assert 'B' in mat_dict
 
         matrices = [
             mat_dict['A'],
@@ -905,7 +940,8 @@ class LTIModel(Model):
             mu = self.parameters.parse(mu)
         assert self.parameters.assert_compatible(mu)
         poles = self.presets['poles'] if 'poles' in self.presets else self._poles(mu=mu)
-        assert isinstance(poles, np.ndarray) and poles.shape == (self.A.source.dim,)
+        assert isinstance(poles, np.ndarray)
+        assert poles.shape == (self.A.source.dim,)
 
         return poles
 
@@ -928,6 +964,7 @@ class LTIModel(Model):
         options_lrcf = self.solver_options.get('lyap_lrcf') if self.solver_options else None
         options_dense = self.solver_options.get('lyap_dense') if self.solver_options else None
         options_ricc_lrcf = self.solver_options.get('ricc_lrcf') if self.solver_options else None
+        options_ricc_pos_dense = self.solver_options.get('ricc_pos_dense') if self.solver_options else None
         options_ricc_pos_lrcf = self.solver_options.get('ricc_pos_lrcf') if self.solver_options else None
         solve_lyap_lrcf = solve_cont_lyap_lrcf if self.sampling_time == 0 else solve_disc_lyap_lrcf
         solve_lyap_dense = solve_cont_lyap_dense if self.sampling_time == 0 else solve_disc_lyap_dense
@@ -968,6 +1005,16 @@ class LTIModel(Model):
             return solve_pos_ricc_lrcf(A, E, -B.as_range_array(mu=mu), A.source.zeros(),
                                        R=to_matrix(D + D.H, 'dense'), S=C.as_source_array(mu=mu),
                                        trans=True, options=options_ricc_pos_lrcf)
+        elif typ == 'pr_c_dense':
+            return solve_pos_ricc_dense(to_matrix(A, format='dense'), to_matrix(E, format='dense') if E else None,
+                                        A.source.zeros().to_numpy().T, -to_matrix(C, format='dense'),
+                                        R=to_matrix(D + D.H, 'dense'), S=to_matrix(B, format='dense').T,
+                                        trans=False, options=options_ricc_pos_dense)
+        elif typ == 'pr_o_dense':
+            return solve_pos_ricc_dense(to_matrix(A, format='dense'), to_matrix(E, format='dense') if E else None,
+                                        -to_matrix(B, format='dense'), A.source.zeros().to_numpy(),
+                                        R=to_matrix(D + D.H, 'dense'), S=to_matrix(C, format='dense').T,
+                                        trans=True, options=options_ricc_pos_dense)
         elif typ[0] == 'br_c_lrcf':
             return solve_pos_ricc_lrcf(A, E, B.as_range_array(mu=mu), C.as_source_array(mu=mu),
                                        R=(typ[1] ** 2 * np.eye(self.dim_output)
@@ -1025,7 +1072,7 @@ class LTIModel(Model):
         If typ ends with `'_dense'`, then the Gramian as a |NumPy array|.
         """
         assert (typ in ('c_lrcf', 'o_lrcf', 'c_dense', 'o_dense', 'bs_c_lrcf', 'bs_o_lrcf', 'lqg_c_lrcf', 'lqg_o_lrcf',
-                        'pr_c_lrcf', 'pr_o_lrcf')
+                        'pr_c_lrcf', 'pr_o_lrcf', 'pr_c_dense', 'pr_o_dense')
                 or isinstance(typ, tuple) and len(typ) == 2 and typ[0] in ('br_c_lrcf', 'br_o_lrcf'))
 
         if ((isinstance(typ, str) and (typ.startswith('bs') or typ.startswith('lqg')) or isinstance(typ, tuple))
@@ -1116,7 +1163,8 @@ class LTIModel(Model):
             One-dimensional |NumPy array| of singular values.
         """
         hsv = self.presets['hsv'] if 'hsv' in self.presets else self._sv_U_V(mu=mu)[0]
-        assert isinstance(hsv, np.ndarray) and hsv.ndim == 1
+        assert isinstance(hsv, np.ndarray)
+        assert hsv.ndim == 1
 
         return hsv
 
@@ -1195,7 +1243,8 @@ class LTIModel(Model):
             )
 
         if return_fpeak:
-            assert isinstance(fpeak, Number) and hinf_norm >= 0
+            assert isinstance(fpeak, Number)
+            assert hinf_norm >= 0
             return hinf_norm, fpeak
         else:
             assert hinf_norm >= 0
@@ -1348,7 +1397,8 @@ class LTIModel(Model):
             linf_norm, fpeak = self._linf_norm(mu=mu, ab13dd_equilibrate=ab13dd_equilibrate, tol=tol)
 
         if return_fpeak:
-            assert isinstance(fpeak, Number) and linf_norm >= 0
+            assert isinstance(fpeak, Number)
+            assert linf_norm >= 0
             return linf_norm, fpeak
         else:
             assert linf_norm >= 0
@@ -1687,6 +1737,9 @@ class PHLTIModel(LTIModel):
         """
         Convert a passive |LTIModel| to a |PHLTIModel|.
 
+        .. note::
+            The method uses dense computations and converts `model` to dense matrices.
+
         Parameters
         ----------
         model
@@ -1695,20 +1748,24 @@ class PHLTIModel(LTIModel):
             If `True`, the resulting |PHLTIModel| will have :math:`Q=I`.
         """
         # Determine solution of KYP inequality
-        L = VectorArrayOperator(model.gramian('pr_o_lrcf'), adjoint=True)
-        X = L.H @ L
+        X = model.gramian('pr_o_dense')
+        A, B, C, D, E = model.to_matrices()
+
+        XinvAT = np.linalg.solve(X, A.T)
+        AXinv = XinvAT.T # X is symmetric
+        XinvCT = np.linalg.solve(X, C.T)
 
         Q = X
-        E = model.E
-        J = 0.5 * (model.A @ InverseOperator(X) - InverseOperator(X) @ model.A.H)
-        R = -0.5 * (model.A @ InverseOperator(X) + InverseOperator(X) @ model.A.H)
-        G = 0.5 * (InverseOperator(X) @ model.C.H + model.B)
-        P = 0.5 * (InverseOperator(X) @ model.C.H - model.B)
-        S = 0.5 * (model.D + model.D.H)
-        N = 0.5 * (model.D - model.D.H)
+        J = 0.5 * (AXinv - XinvAT)
+        R = -0.5 * (AXinv + XinvAT)
+        G = 0.5 * (XinvCT + B)
+        P = 0.5 * (XinvCT - B)
+        S = 0.5 * (D + D.T)
+        N = 0.5 * (D - D.T)
 
-        return cls(E=E, J=J, R=R, G=G, P=P, S=S, N=N, Q=Q, solver_options=model.solver_options,
-                   error_estimator=model.error_estimator, visualizer=model.visualizer, name=model.name)
+        return PHLTIModel.from_matrices(J, R, G, P=P, S=S, N=N, E=E, Q=Q, solver_options=model.solver_options,
+                                        error_estimator=model.error_estimator, visualizer=model.visualizer,
+                                        name=model.name)
 
     def __str__(self):
         string = (
@@ -1798,8 +1855,16 @@ class PHLTIModel(LTIModel):
                    solver_options=solver_options, error_estimator=error_estimator, visualizer=visualizer,
                    name=name)
 
-    def to_matrices(self):
+    def to_matrices(self, format=None):
         """Return operators as matrices.
+
+        Parameters
+        ----------
+        format
+            Format of the resulting matrices: |NumPy array| if 'dense',
+            otherwise the appropriate |SciPy spmatrix|.
+            If `None`, a choice between dense and sparse format is
+            automatically made.
 
         Returns
         -------
@@ -1820,14 +1885,14 @@ class PHLTIModel(LTIModel):
         Q
             The |NumPy array| or |SciPy spmatrix| Q  or `None` (if Q is an `IdentityOperator`).
         """
-        J = to_matrix(self.J)
-        R = to_matrix(self.R)
-        G = to_matrix(self.G)
-        P = None if isinstance(self.P, ZeroOperator) else to_matrix(self.P)
-        S = None if isinstance(self.S, ZeroOperator) else to_matrix(self.S)
-        N = None if isinstance(self.N, ZeroOperator) else to_matrix(self.N)
-        E = None if isinstance(self.E, IdentityOperator) else to_matrix(self.E)
-        Q = None if isinstance(self.Q, IdentityOperator) else to_matrix(self.Q)
+        J = to_matrix(self.J, format)
+        R = to_matrix(self.R, format)
+        G = to_matrix(self.G, format)
+        P = None if isinstance(self.P, ZeroOperator) else to_matrix(self.P, format)
+        S = None if isinstance(self.S, ZeroOperator) else to_matrix(self.S, format)
+        N = None if isinstance(self.N, ZeroOperator) else to_matrix(self.N, format)
+        E = None if isinstance(self.E, IdentityOperator) else to_matrix(self.E, format)
+        Q = None if isinstance(self.Q, IdentityOperator) else to_matrix(self.Q, format)
 
         return J, R, G, P, S, N, E, Q
 
@@ -1957,17 +2022,28 @@ class SecondOrderModel(Model):
     def __init__(self, M, E, K, B, Cp, Cv=None, D=None, sampling_time=0,
                  solver_options=None, error_estimator=None, visualizer=None, name=None):
 
-        assert M.linear and M.source == M.range
-        assert E.linear and E.source == E.range == M.source
-        assert K.linear and K.source == K.range == M.source
-        assert B.linear and B.range == M.source
-        assert Cp.linear and Cp.source == M.range
+        assert M.linear
+        assert M.source == M.range
+        assert E.linear
+        assert E.source == E.range
+        assert E.source == M.source
+        assert K.linear
+        assert K.source == K.range
+        assert K.source == M.source
+        assert B.linear
+        assert B.range == M.source
+        assert Cp.linear
+        assert Cp.source == M.range
 
         Cv = Cv or ZeroOperator(Cp.range, Cp.source)
-        assert Cv.linear and Cv.source == M.range and Cv.range == Cp.range
+        assert Cv.linear
+        assert Cv.source == M.range
+        assert Cv.range == Cp.range
 
         D = D or ZeroOperator(Cp.range, B.source)
-        assert D.linear and D.source == B.source and D.range == Cp.range
+        assert D.linear
+        assert D.source == B.source
+        assert D.range == Cp.range
 
         sampling_time = float(sampling_time)
         assert sampling_time >= 0
@@ -2651,9 +2727,14 @@ class LinearDelayModel(Model):
 
         assert A.linear
         assert A.source == A.range
-        assert isinstance(Ad, tuple) and len(Ad) > 0
-        assert all(Ai.linear and Ai.source == Ai.range == A.source for Ai in Ad)
-        assert isinstance(tau, tuple) and len(tau) == len(Ad) and all(taui > 0 for taui in tau)
+        assert isinstance(Ad, tuple)
+        assert len(Ad) > 0
+        assert all(Ai.linear for Ai in Ad)
+        assert all(Ai.source == Ai.range for Ai in Ad)
+        assert all(Ai.source == A.source for Ai in Ad)
+        assert isinstance(tau, tuple)
+        assert len(tau) == len(Ad)
+        assert all(taui > 0 for taui in tau)
         assert B.linear
         assert B.range == A.source
         assert C.linear
@@ -2934,17 +3015,27 @@ class LinearStochasticModel(Model):
     def __init__(self, A, As, B, C, D=None, E=None, sampling_time=0,
                  error_estimator=None, visualizer=None, name=None):
 
-        assert A.linear and A.source == A.range
-        assert isinstance(As, tuple) and len(As) > 0
-        assert all(Ai.linear and Ai.source == Ai.range == A.source for Ai in As)
-        assert B.linear and B.range == A.source
-        assert C.linear and C.source == A.range
+        assert A.linear
+        assert A.source == A.range
+        assert isinstance(As, tuple)
+        assert len(As) > 0
+        assert all(Ai.linear for Ai in As)
+        assert all(Ai.source == Ai.range for Ai in As)
+        assert all(Ai.source == A.source for Ai in As)
+        assert B.linear
+        assert B.range == A.source
+        assert C.linear
+        assert C.source == A.range
 
         D = D or ZeroOperator(C.range, B.source)
-        assert D.linear and D.source == B.source and D.range == C.range
+        assert D.linear
+        assert D.source == B.source
+        assert D.range == C.range
 
         E = E or IdentityOperator(A.source)
-        assert E.linear and E.source == E.range == A.source
+        assert E.linear
+        assert E.source == E.range
+        assert E.source == A.source
 
         sampling_time = float(sampling_time)
         assert sampling_time >= 0
@@ -3063,17 +3154,27 @@ class BilinearModel(Model):
     def __init__(self, A, N, B, C, D, E=None, sampling_time=0,
                  error_estimator=None, visualizer=None, name=None):
 
-        assert A.linear and A.source == A.range
-        assert B.linear and B.range == A.source
-        assert isinstance(N, tuple) and len(N) == B.source.dim
-        assert all(Ni.linear and Ni.source == Ni.range == A.source for Ni in N)
-        assert C.linear and C.source == A.range
+        assert A.linear
+        assert A.source == A.range
+        assert B.linear
+        assert B.range == A.source
+        assert isinstance(N, tuple)
+        assert len(N) == B.source.dim
+        assert all(Ni.linear for Ni in N)
+        assert all(Ni.source == Ni.range for Ni in N)
+        assert all(Ni.source == A.source for Ni in N)
+        assert C.linear
+        assert C.source == A.range
 
         D = D or ZeroOperator(C.range, B.source)
-        assert D.linear and D.source == B.source and D.range == C.range
+        assert D.linear
+        assert D.source == B.source
+        assert D.range == C.range
 
         E = E or IdentityOperator(A.source)
-        assert E.linear and E.source == E.range == A.source
+        assert E.linear
+        assert E.source == E.range
+        assert E.source == A.source
 
         sampling_time = float(sampling_time)
         assert sampling_time >= 0
