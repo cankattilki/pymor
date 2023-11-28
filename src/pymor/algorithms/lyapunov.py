@@ -15,7 +15,7 @@ _DEFAULT_LYAP_SOLVER_BACKEND = FrozenDict(
         'cont': FrozenDict(
             {
                 'sparse': 'lradi',
-                'dense': 'slycot' 
+                'dense': 'slycot'
                 if config.HAVE_SLYCOT
                 else 'pymepack'
                 if config.HAVE_PYMEPACK
