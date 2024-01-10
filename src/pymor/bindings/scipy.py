@@ -178,8 +178,8 @@ def apply_inverse(op, V, initial_guess=None, options=None, least_squares=False, 
     -------
     |VectorArray| of the solution vectors.
     """
-    assert V in op.range
-    assert initial_guess is None or initial_guess in op.source and len(initial_guess) == len(V)
+    assert V.shape[1] == op.dim_range
+    assert initial_guess is None or initial_guess.shape[1] == op.dim_source and len(initial_guess) == len(V)
 
     if isinstance(op, NumpyMatrixOperator):
         matrix = op.matrix
@@ -189,8 +189,6 @@ def apply_inverse(op, V, initial_guess=None, options=None, least_squares=False, 
 
     options = _parse_options(options, solver_options(), default_solver, default_least_squares_solver, least_squares)
 
-    V = V.to_numpy()
-    initial_guess = initial_guess.to_numpy() if initial_guess is not None else None
     promoted_type = np.promote_types(matrix.dtype, V.dtype)
     R = np.empty((len(V), matrix.shape[1]), dtype=promoted_type)
 
@@ -287,7 +285,7 @@ def apply_inverse(op, V, initial_guess=None, options=None, least_squares=False, 
         if not np.isfinite(np.sum(R)):
             raise InversionError('Result contains non-finite values')
 
-    return op.source.from_numpy(R)
+    return R
 
 
 # unfortunately, this is necessary, as scipy does not

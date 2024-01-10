@@ -174,12 +174,12 @@ def reduction_error_analysis(rom, fom, reductor, test_mus,
 
     if isinstance(basis_sizes, Number):
         if basis_sizes == 1:
-            basis_sizes = [rom.solution_space.dim]
+            basis_sizes = [rom.dim_solution]
         else:
             if basis_sizes == 0:
-                basis_sizes = rom.solution_space.dim + 1
-            basis_sizes = min(rom.solution_space.dim + 1, basis_sizes)
-            basis_sizes = np.linspace(0, rom.solution_space.dim, basis_sizes).astype(int)
+                basis_sizes = rom.dim_solution + 1
+            basis_sizes = min(rom.dim_solution + 1, basis_sizes)
+            basis_sizes = np.linspace(0, rom.dim_solution, basis_sizes).astype(int)
     elif isinstance(basis_sizes, (list, tuple)):
         assert all(isinstance(sz, Number) for sz in basis_sizes)
         basis_sizes = np.array(basis_sizes)

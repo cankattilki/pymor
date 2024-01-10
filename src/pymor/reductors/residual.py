@@ -60,13 +60,13 @@ class ResidualReductor(BasicObject):
     """
 
     def __init__(self, RB, operator, rhs=None, product=None, riesz_representatives=False):
-        assert RB in operator.source
+        assert RB.shape[1] == operator.dim_source
         assert rhs is None \
-            or (rhs.source.is_scalar and rhs.range == operator.range and rhs.linear)
-        assert product is None or product.source == product.range == operator.range
+            or (rhs.dim_source == 1 and rhs.dim_range == operator.dim_range and rhs.linear)
+        assert product is None or product.dim_source == product.dim_range == operator.dim_range
 
         self.__auto_init(locals())
-        self.residual_range = operator.range.empty()
+        self.residual_range = np.zeros((0, operator.dim_range))
         self.residual_range_dims = []
 
     def reduce(self):
@@ -113,15 +113,15 @@ class ResidualOperator(Operator):
 
     def __init__(self, operator, rhs, name=None):
         self.__auto_init(locals())
-        self.source = operator.source
-        self.range = operator.range
+        self.dim_source = operator.dim_source
+        self.dim_range = operator.dim_range
         self.linear = operator.linear
         self.rhs_vector = rhs.as_range_array() if rhs and not rhs.parametric else None
 
     def apply(self, U, mu=None):
         V = self.operator.apply(U, mu=mu)
         if self.rhs:
-            F = self.rhs_vector or self.rhs.as_range_array(mu)
+            F = self.rhs_vector if self.rhs_vector is not None else self.rhs.as_range_array(mu)
             if len(V) > 1:
                 V -= F[[0]*len(V)]
             else:

@@ -8,7 +8,6 @@ from pymor.operators.constructions import ConcatenationOperator, IdentityOperato
 from pymor.operators.interface import Operator, as_array_max_length
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.parameters.functionals import ParameterFunctional
-from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 
 def expand(obj):

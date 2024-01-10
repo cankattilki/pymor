@@ -7,11 +7,11 @@
 import numpy as np
 import scipy.linalg as spla
 
+from pymor.algorithms.basic import gramian
 from pymor.algorithms.gram_schmidt import gram_schmidt
 from pymor.core.defaults import defaults
 from pymor.core.logger import getLogger
 from pymor.operators.interface import Operator
-from pymor.vectorarrays.interface import VectorArray
 
 
 @defaults('rtol', 'atol', 'l2_err')
@@ -61,16 +61,15 @@ def method_of_snapshots(A, product=None, modes=None, rtol=1e-7, atol=0., l2_err=
     Vh
         |NumPy array| of right singular vectors.
     """
-    assert isinstance(A, VectorArray)
     assert product is None or isinstance(product, Operator)
 
-    if A.dim == 0 or len(A) == 0:
-        return A.space.empty(), np.array([]), np.zeros((0, len(A)))
+    if A.shape[1] == 0 or len(A) == 0:
+        return np.zeros((0, A.shape[1])), np.array([]), np.zeros((0, len(A)))
 
     logger = getLogger('pymor.algorithms.svd_va.method_of_snapshots')
 
     with logger.block(f'Computing Gramian ({len(A)} vectors) ...'):
-        B = A.gramian(product)
+        B = gramian(A, product)
 
     with logger.block('Computing eigenvalue decomposition ...'):
         eigvals = (None
@@ -95,16 +94,16 @@ def method_of_snapshots(A, product=None, modes=None, rtol=1e-7, atol=0., l2_err=
         if modes is not None:
             selected_modes = min(selected_modes, modes)
 
-        if selected_modes > A.dim:
+        if selected_modes > A.shape[1]:
             logger.warning('Number of computed singular vectors larger than array dimension! Truncating ...')
-            selected_modes = A.dim
+            selected_modes = A.shape[1]
 
         s = np.sqrt(evals[:selected_modes])
         V = V[:selected_modes]
         Vh = V.conj()
 
     with logger.block(f'Computing left-singular vectors ({len(V)} vectors) ...'):
-        U = A.lincomb(V / s[:, np.newaxis])
+        U = (V / s[:, np.newaxis]) @ A
 
     return U, s, Vh
 
@@ -152,7 +151,6 @@ def qr_svd(A, product=None, modes=None, rtol=4e-8, atol=0., l2_err=0.):
     Vh
         |NumPy array| of right singular vectors.
     """
-    assert isinstance(A, VectorArray)
     assert product is None or isinstance(product, Operator)
 
     if A.dim == 0 or len(A) == 0:

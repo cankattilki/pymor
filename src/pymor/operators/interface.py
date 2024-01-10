@@ -7,13 +7,12 @@ from numbers import Number
 import numpy as np
 
 from pymor.algorithms import genericsolvers
+from pymor.algorithms.basic import inner, pairwise_inner
 from pymor.core.base import abstractmethod
 from pymor.core.defaults import defaults
 from pymor.core.exceptions import InversionError, LinAlgError
 from pymor.parameters.base import ParametricObject
 from pymor.parameters.functionals import ParameterFunctional
-from pymor.vectorarrays.interface import VectorArray
-from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 
 class Operator(ParametricObject):
@@ -117,10 +116,8 @@ class Operator(ParametricObject):
         evaluations.
         """
         assert self.parameters.assert_compatible(mu)
-        assert isinstance(V, VectorArray)
-        assert isinstance(U, VectorArray)
         AU = self.apply(U, mu=mu)
-        return V.inner(AU)
+        return inner(V, AU)
 
     def pairwise_apply2(self, V, U, mu=None):
         """Treat the operator as a 2-form and apply it to V and U in pairs.
@@ -150,11 +147,9 @@ class Operator(ParametricObject):
         the 2-form evaluations.
         """
         assert self.parameters.assert_compatible(mu)
-        assert isinstance(V, VectorArray)
-        assert isinstance(U, VectorArray)
         assert len(U) == len(V)
         AU = self.apply(U, mu=mu)
-        return V.pairwise_inner(AU)
+        return pairwise_inner(V, AU)
 
     def apply_adjoint(self, V, mu=None):
         """Apply the adjoint operator.
@@ -220,8 +215,8 @@ class Operator(ParametricObject):
         InversionError
             The operator could not be inverted.
         """
-        assert V in self.range
-        assert initial_guess is None or initial_guess in self.source and len(initial_guess) == len(V)
+        assert V.shape[1] == self.dim_range
+        assert initial_guess is None or initial_guess.shape[1] == self.dim_source and len(initial_guess) == len(V)
         from pymor.operators.constructions import FixedParameterOperator
         assembled_op = self.assemble(mu)
         if assembled_op != self and not isinstance(assembled_op, FixedParameterOperator):
@@ -399,10 +394,9 @@ class Operator(ParametricObject):
         V
             The |VectorArray| defined above.
         """
-        assert isinstance(self.source, NumpyVectorSpace)
         assert self.linear
-        assert self.source.dim <= as_array_max_length()
-        return self.apply(self.source.from_numpy(np.eye(self.source.dim)), mu=mu)
+        assert self.dim_source <= as_array_max_length()
+        return self.apply(np.eye(self.dim_source), mu=mu)
 
     def as_source_array(self, mu=None):
         """Return a |VectorArray| representation of the operator in its source space.
@@ -428,7 +422,6 @@ class Operator(ParametricObject):
         V
             The |VectorArray| defined above.
         """
-        assert isinstance(self.range, NumpyVectorSpace)
         assert self.linear
         assert self.range.dim <= as_array_max_length()
         return self.apply_adjoint(self.range.from_numpy(np.eye(self.range.dim)), mu=mu)

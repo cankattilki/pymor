@@ -4,6 +4,7 @@
 
 import numpy as np
 
+from pymor.algorithms.basic import inner, norm
 from pymor.algorithms.image import estimate_image
 from pymor.algorithms.projection import project
 from pymor.core.base import ImmutableObject
@@ -12,7 +13,6 @@ from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.parameters.functionals import ConstantParameterFunctional, ParameterFunctional
 from pymor.reductors.basic import StationaryRBReductor
 from pymor.reductors.residual import ResidualReductor
-from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 
 class CoerciveRBReductor(StationaryRBReductor):
@@ -50,6 +50,7 @@ class CoerciveRBReductor(StationaryRBReductor):
                                                   product=product, riesz_representatives=True)
 
     def assemble_error_estimator(self):
+        self.residual_reductor.RB = self.bases['RB']
         residual = self.residual_reductor.reduce()
 
         # output estimate
@@ -78,7 +79,7 @@ class CoerciveRBEstimator(ImmutableObject):
         self.__auto_init(locals())
 
     def estimate_error(self, U, mu, m):
-        est = self.residual.apply(U, mu=mu).norm()
+        est = norm(self.residual.apply(U, mu=mu))
         if self.coercivity_estimator:
             est /= self.coercivity_estimator(mu)
         return est
@@ -159,7 +160,7 @@ class SimpleCoerciveRBReductor(StationaryRBReductor):
             old_RB_size = 0
 
         # compute data for error estimator
-        space = fom.operator.source
+        dim = fom.operator.dim_source
 
         # compute the Riesz representative of (U, .)_L2 with respect to product
         def riesz_representative(U):
@@ -169,46 +170,51 @@ class SimpleCoerciveRBReductor(StationaryRBReductor):
                 return self.products['RB'].apply_inverse(U)
 
         def append_vector(U, R, RR):
-            RR.append(riesz_representative(U), remove_from_other=True)
-            R.append(U, remove_from_other=True)
+            RR = np.vstack([RR, riesz_representative(U)])
+            R = np.vstack([R, U])
+            return R, RR
 
         # compute all components of the residual
         if extends:
             R_R, RR_R = old_data['R_R'], old_data['RR_R']
         elif not fom.rhs.parametric:
-            R_R = space.empty(reserve=1)
-            RR_R = space.empty(reserve=1)
-            append_vector(fom.rhs.as_range_array(), R_R, RR_R)
+            R_R = np.zeros((0, dim))
+            RR_R = np.zeros((0, dim))
+            R_R, RR_R = append_vector(fom.rhs.as_range_array(), R_R, RR_R)
         else:
-            R_R = space.empty(reserve=len(fom.rhs.operators))
-            RR_R = space.empty(reserve=len(fom.rhs.operators))
+            R_R = np.zeros((0, dim))
+            RR_R = np.zeros((0, dim))
             for op in fom.rhs.operators:
-                append_vector(op.as_range_array(), R_R, RR_R)
+                R_R, RR_R = append_vector(op.as_range_array(), R_R, RR_R)
 
         if len(RB) == 0:
-            R_Os = [space.empty()]
-            RR_Os = [space.empty()]
+            R_Os = [np.zeros((0, dim))]
+            RR_Os = [np.zeros((0, dim))]
         elif not fom.operator.parametric:
-            R_Os = [space.empty(reserve=len(RB))]
-            RR_Os = [space.empty(reserve=len(RB))]
+            R_Os = [np.zeros((0, dim))]
+            RR_Os = [np.zeros((0, dim))]
             for i in range(len(RB)):
-                append_vector(-fom.operator.apply(RB[i]), R_Os[0], RR_Os[0])
+                R, RR = append_vector(-fom.operator.apply(RB[i]), R_Os[0], RR_Os[0])
+                R_Os[0] = R
+                RR_Os[0] = RR
         else:
-            R_Os = [space.empty(reserve=len(RB)) for _ in range(len(fom.operator.operators))]
-            RR_Os = [space.empty(reserve=len(RB)) for _ in range(len(fom.operator.operators))]
+            R_Os = [np.zeros((0, dim)) for _ in range(len(fom.operator.operators))]
+            RR_Os = [np.zeros((0, dim)) for _ in range(len(fom.operator.operators))]
             if old_RB_size > 0:
-                for op, R_O, RR_O, old_R_O, old_RR_O in zip(fom.operator.operators, R_Os, RR_Os,
-                                                            old_data['R_Os'], old_data['RR_Os']):
-                    R_O.append(old_R_O)
-                    RR_O.append(old_RR_O)
-            for op, R_O, RR_O in zip(fom.operator.operators, R_Os, RR_Os):
+                for i, (op, R_O, RR_O, old_R_O, old_RR_O) in enumerate(zip(fom.operator.operators, R_Os, RR_Os,
+                                                                           old_data['R_Os'], old_data['RR_Os'])):
+                    R_Os[i] = np.vstack([R_O, old_R_O])
+                    RR_Os[i] = np.vstack([RR_O, old_RR_O])
+            for j, (op, R_O, RR_O) in enumerate(zip(fom.operator.operators, R_Os, RR_Os)):
                 for i in range(old_RB_size, len(RB)):
-                    append_vector(-op.apply(RB[i]), R_O, RR_O)
+                    R_O, RR_O = append_vector(-op.apply(RB[i]), R_O, RR_O)
+                R_Os[j] = R_O
+                RR_Os[j] = RR_O
 
         # compute Gram matrix of the residuals
-        R_RR = RR_R.inner(R_R)
-        R_RO = np.hstack([RR_R.inner(R_O) for R_O in R_Os])
-        R_OO = np.vstack([np.hstack([RR_O.inner(R_O) for R_O in R_Os]) for RR_O in RR_Os])
+        R_RR = inner(RR_R, R_R)
+        R_RO = np.hstack([inner(RR_R, R_O) for R_O in R_Os])
+        R_OO = np.vstack([np.hstack([inner(RR_O, R_O) for R_O in R_Os]) for RR_O in RR_Os])
 
         estimator_matrix = np.empty((len(R_RR) + len(R_OO),) * 2)
         estimator_matrix[:len(R_RR), :len(R_RR)] = R_RR
@@ -278,9 +284,9 @@ class SimpleCoerciveRBEstimator(ImmutableObject):
         else:
             CO = np.array(m.operator.evaluate_coefficients(mu))
 
-        C = np.hstack((CR, np.dot(CO[..., np.newaxis], U.to_numpy()).ravel()))
+        C = np.hstack((CR, np.dot(CO[..., np.newaxis], U).ravel())).reshape((1, -1))
 
-        est = self.norm(NumpyVectorSpace.make_array(C))
+        est = self.norm(C)
         if self.coercivity_estimator:
             est /= self.coercivity_estimator(mu)
 
@@ -304,7 +310,7 @@ class SimpleCoerciveRBEstimator(ImmutableObject):
     def restricted_to_subbasis(self, dim, m):
         cr = 1 if not m.rhs.parametric else len(m.rhs.operators)
         co = 1 if not m.operator.parametric else len(m.operator.operators)
-        old_dim = m.operator.source.dim
+        old_dim = m.operator.dim_source
 
         indices = np.concatenate((np.arange(cr),
                                  ((np.arange(co)*old_dim)[..., np.newaxis] + np.arange(dim)).ravel() + cr))

@@ -12,6 +12,10 @@ from pymor.tools.floatcmp import float_cmp
 
 
 def inner(U, V, product=None):
+    if U.ndim == 1:
+        U = U.reshape((1, -1))
+    if V.ndim == 1:
+        V = V.reshape((1, -1))
     if product is None:
         return U.conj().dot(V.T)
     else:
@@ -19,13 +23,23 @@ def inner(U, V, product=None):
 
 
 def pairwise_inner(U, V, product=None):
+    if U.ndim == 1:
+        U = U.reshape((1, -1))
+    if V.ndim == 1:
+        V = V.reshape((1, -1))
     if product is None:
         return np.sum(U.conj()* V, axis=1)
     else:
         return product.pairwise_apply2(U, V)
 
 
+def gramian(U, product=None):
+    return inner(U, U, product)
+
+
 def norm(U, product=None):
+    if U.ndim == 1:
+        U = U.reshape((1, -1))
     if product is None:
         return np.linalg.norm(U, axis=1)
     else:
@@ -63,17 +77,21 @@ def almost_equal(U, V, product=None, sup_norm=False, rtol=1e-14, atol=1e-14):
         The absolute tolerance.
     """
     assert product is None or not sup_norm
+    if U.ndim == 1:
+        U = U.reshape((1, -1))
+    if V.ndim == 1:
+        V = V.reshape((1, -1))
 
-    V_norm = V.sup_norm() if sup_norm else V.norm(product)
+    V_norm = V.sup_norm() if sup_norm else norm(V, product)
     X = V.copy()
 
     # broadcast if necessary
     if len(X) == 1:
         if len(U) > 1:
-            X.append(X[np.zeros(len(U) - 1, dtype=int)])
+            X = np.vstack([X, X[np.zeros(len(U) - 1, dtype=int)]])
 
     X -= U
-    ERR_norm = X.sup_norm() if sup_norm else X.norm(product)
+    ERR_norm = X.sup_norm() if sup_norm else norm(X, product)
 
     return ERR_norm <= atol + V_norm * rtol
 

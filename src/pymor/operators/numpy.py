@@ -32,7 +32,6 @@ from pymor.core.defaults import defaults
 from pymor.core.exceptions import InversionError
 from pymor.core.logger import getLogger
 from pymor.operators.interface import Operator
-from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 
 class NumpyGenericOperator(Operator):
@@ -71,10 +70,8 @@ class NumpyGenericOperator(Operator):
     """
 
     def __init__(self, mapping, adjoint_mapping=None, dim_source=1, dim_range=1, linear=False, parameters={},
-                 source_id=None, range_id=None, solver_options=None, name=None):
+                 solver_options=None, name=None):
         self.__auto_init(locals())
-        self.source = NumpyVectorSpace(dim_source, source_id)
-        self.range = NumpyVectorSpace(dim_range, range_id)
         self.parameters_own = parameters
 
     def apply(self, U, mu=None):
@@ -124,8 +121,6 @@ class NumpyMatrixBasedOperator(Operator):
     def assemble(self, mu=None):
         assert self.parameters.assert_compatible(mu)
         return NumpyMatrixOperator(self._assemble(mu),
-                                   source_id=self.source.id,
-                                   range_id=self.range.id,
                                    solver_options=self.solver_options,
                                    name=self.name)
 
@@ -192,7 +187,7 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
         Name of the operator.
     """
 
-    def __init__(self, matrix, source_id=None, range_id=None, solver_options=None, name=None):
+    def __init__(self, matrix, solver_options=None, name=None):
         assert matrix.ndim <= 2
         if matrix.ndim == 1:
             matrix = np.reshape(matrix, (1, -1))
@@ -202,8 +197,8 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
             pass
 
         self.__auto_init(locals())
-        self.source = NumpyVectorSpace(matrix.shape[1], source_id)
-        self.range = NumpyVectorSpace(matrix.shape[0], range_id)
+        self.dim_source = matrix.shape[1]
+        self.dim_range = matrix.shape[0]
         self.sparse = sps.issparse(matrix)
 
     @classmethod
@@ -223,8 +218,7 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
             adjoint_matrix = self.matrix.T
         else:
             adjoint_matrix = self.matrix.T.conj()
-        return self.with_(matrix=adjoint_matrix, source_id=self.range_id, range_id=self.source_id,
-                          solver_options=options, name=self.name + '_adjoint')
+        return self.with_(matrix=adjoint_matrix, solver_options=options, name=self.name + '_adjoint')
 
     def _assemble(self, mu=None):
         pass
@@ -235,7 +229,7 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
     def as_range_array(self, mu=None):
         if self.sparse:
             return Operator.as_range_array(self)
-        return self.range.from_numpy(self.matrix.T.copy())
+        return self.matrix.T.copy()
 
     def as_source_array(self, mu=None):
         if self.sparse:
@@ -243,11 +237,13 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
         return self.source.from_numpy(self.matrix.copy()).conj()
 
     def apply(self, U, mu=None):
-        assert U in self.source
-        return self.range.make_array(self.matrix.dot(U.to_numpy().T).T)
+        if U.ndim == 1:
+            U = U.reshape((1, -1))
+        assert U.shape[1] == self.dim_source
+        return self.matrix.dot(U.T).T
 
     def apply_adjoint(self, V, mu=None):
-        assert V in self.range
+        assert V.shape[1] == self.dim_range
         return self.H.apply(V, mu=mu)
 
     @defaults('check_finite', 'check_cond', 'default_sparse_solver_backend')
@@ -293,16 +289,16 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
         InversionError
             The operator could not be inverted.
         """
-        assert V in self.range
-        assert initial_guess is None or initial_guess in self.source and len(initial_guess) == len(V)
+        assert V.shape[1] == self.dim_range
+        assert initial_guess is None or initial_guess.shape[1] == self.dim_source and len(initial_guess) == len(V)
 
-        if V.dim == 0:
-            if self.source.dim == 0 or least_squares:
-                return self.source.make_array(np.zeros((len(V), self.source.dim)))
+        if V.shape[1] == 0:
+            if self.dim_source == 0 or least_squares:
+                return np.zeros((len(V), self.dim_source))
             else:
                 raise InversionError
 
-        if self.source.dim != self.range.dim and not least_squares:
+        if self.dim_source != self.dim_range and not least_squares:
             raise InversionError
 
         options = self.solver_options.get('inverse') if self.solver_options else None
@@ -330,7 +326,7 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
         else:
             if least_squares:
                 try:
-                    R, _, _, _ = spla.lstsq(self.matrix, V.to_numpy().T)
+                    R, _, _, _ = spla.lstsq(self.matrix, V.T)
                 except np.linalg.LinAlgError as e:
                     raise InversionError(f'{type(e)!s}: {e!s}') from e
                 R = R.T
@@ -346,13 +342,13 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
                         if rcond < np.finfo(np.float64).eps:
                             self.logger.warning(f'Ill-conditioned matrix (rcond={rcond:.6g}) in apply_inverse: '
                                                 'result may not be accurate.')
-                R = lu_solve(self._lu_factor, V.to_numpy().T, check_finite=check_finite).T
+                R = lu_solve(self._lu_factor, V.T, check_finite=check_finite).T
 
             if check_finite:
                 if not np.isfinite(np.sum(R)):
                     raise InversionError('Result contains non-finite values')
 
-            return self.source.make_array(R)
+            return R
 
     def apply_inverse_adjoint(self, U, mu=None, initial_guess=None, least_squares=False):
         return self.H.apply_inverse(U, mu=mu, initial_guess=initial_guess, least_squares=least_squares)
@@ -401,10 +397,7 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
             else:
                 matrix += (np.eye(matrix.shape[0]) * identity_shift)
 
-        return NumpyMatrixOperator(matrix,
-                                   source_id=self.source.id,
-                                   range_id=self.range.id,
-                                   solver_options=solver_options)
+        return NumpyMatrixOperator(matrix, solver_options=solver_options)
 
     def __getstate__(self):
         if hasattr(self.matrix, 'factorization'):  # remove unpicklable SuperLU factorization

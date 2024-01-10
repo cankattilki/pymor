@@ -10,7 +10,8 @@ import numpy as np
 from scipy.sparse import coo_matrix, csc_matrix
 
 from pymor.algorithms.preassemble import preassemble as preassemble_
-from pymor.algorithms.timestepping import ExplicitEulerTimeStepper, ImplicitEulerTimeStepper
+
+# from pymor.algorithms.timestepping import ExplicitEulerTimeStepper, ImplicitEulerTimeStepper
 from pymor.analyticalproblems.elliptic import StationaryProblem
 from pymor.analyticalproblems.functions import ConstantFunction, Function, LincombFunction
 from pymor.analyticalproblems.instationary import InstationaryProblem
@@ -21,7 +22,6 @@ from pymor.discretizers.builtin.gui.visualizers import OnedVisualizer, PatchVisu
 from pymor.models.basic import InstationaryModel, StationaryModel
 from pymor.operators.constructions import LincombOperator, QuadraticFunctional
 from pymor.operators.numpy import NumpyMatrixBasedOperator
-from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 LagrangeShapeFunctions = {
     line: {1: [lambda X: 1 - X[..., 0],
@@ -48,10 +48,6 @@ LagrangeShapeFunctionsGrads = {
 }
 
 
-def CGVectorSpace(grid, id='STATE'):
-    return NumpyVectorSpace(grid.size(grid.dim), id)
-
-
 class L2ProductFunctionalP1(NumpyMatrixBasedOperator):
     """Linear functional representing the inner product with an L2-|Function|.
 
@@ -71,14 +67,14 @@ class L2ProductFunctionalP1(NumpyMatrixBasedOperator):
     """
 
     sparse = False
-    source = NumpyVectorSpace(1)
+    dim_source = 1
 
     def __init__(self, grid, function, dirichlet_clear_dofs=False, boundary_info=None, name=None):
         assert grid.reference_element(0) in {line, triangle}
         assert function.shape_range == ()
         assert not dirichlet_clear_dofs or boundary_info
         self.__auto_init(locals())
-        self.range = CGVectorSpace(grid)
+        self.dim_range = grid.size(grid.dim)
 
     def _assemble(self, mu=None):
         g = self.grid
@@ -131,14 +127,14 @@ class BoundaryL2ProductFunctional(NumpyMatrixBasedOperator):
     """
 
     sparse = False
-    source = NumpyVectorSpace(1)
+    dim_source = 1
 
     def __init__(self, grid, function, boundary_type=None, dirichlet_clear_dofs=False, boundary_info=None, name=None):
         assert grid.reference_element(0) in {line, triangle, square}
         assert function.shape_range == ()
         assert not (boundary_type or dirichlet_clear_dofs) or boundary_info
         self.__auto_init(locals())
-        self.range = CGVectorSpace(grid)
+        self.dim_range = grid.size(grid.dim)
 
     def _assemble(self, mu=None):
         g = self.grid
@@ -181,12 +177,12 @@ class BoundaryDirichletFunctional(NumpyMatrixBasedOperator):
     """
 
     sparse = False
-    source = NumpyVectorSpace(1)
+    dim_source = 1
 
     def __init__(self, grid, dirichlet_data, boundary_info, name=None):
         assert grid.reference_element(0) in {line, triangle, square}
         self.__auto_init(locals())
-        self.range = CGVectorSpace(grid)
+        self.dim_range = grid.size(grid.dim)
 
     def _assemble(self, mu=None):
         g = self.grid
@@ -218,14 +214,14 @@ class L2ProductFunctionalQ1(NumpyMatrixBasedOperator):
     """
 
     sparse = False
-    source = NumpyVectorSpace(1)
+    dim_source = 1
 
     def __init__(self, grid, function, dirichlet_clear_dofs=False, boundary_info=None, name=None):
         assert grid.reference_element(0) in {square}
         assert function.shape_range == ()
         assert not dirichlet_clear_dofs or boundary_info
         self.__auto_init(locals())
-        self.range = CGVectorSpace(grid)
+        self.dim_range = grid.size(grid.dim)
 
     def _assemble(self, mu=None):
         g = self.grid
@@ -291,7 +287,7 @@ class L2ProductP1(NumpyMatrixBasedOperator):
                  dirichlet_clear_diag=False, coefficient_function=None, solver_options=None, name=None):
         assert grid.reference_element in (line, triangle)
         self.__auto_init(locals())
-        self.source = self.range = CGVectorSpace(grid)
+        self.dim_source = self.dim_range = grid.size(grid.dim)
 
     def _assemble(self, mu=None):
         g = self.grid
@@ -371,7 +367,7 @@ class L2ProductQ1(NumpyMatrixBasedOperator):
                  dirichlet_clear_diag=False, coefficient_function=None, solver_options=None, name=None):
         assert grid.reference_element in {square}
         self.__auto_init(locals())
-        self.source = self.range = CGVectorSpace(grid)
+        self.dim_source = self.dim_range = grid.size(grid.dim)
 
     def _assemble(self, mu=None):
         g = self.grid
@@ -463,7 +459,7 @@ class DiffusionOperatorP1(NumpyMatrixBasedOperator):
                 and diffusion_function.shape_range == ()
                 or diffusion_function.shape_range == (grid.dim,) * 2)
         self.__auto_init(locals())
-        self.source = self.range = CGVectorSpace(grid)
+        self.dim_source = self.dim_range = grid.size(grid.dim)
 
     def _assemble(self, mu=None):
         g = self.grid
@@ -568,7 +564,7 @@ class DiffusionOperatorQ1(NumpyMatrixBasedOperator):
                 and diffusion_function.shape_range == ()
                 or diffusion_function.shape_range == (grid.dim,) * 2)
         self.__auto_init(locals())
-        self.source = self.range = CGVectorSpace(grid)
+        self.dim_source = self.dim_range = grid.size(grid.dim)
 
     def _assemble(self, mu=None):
         g = self.grid
@@ -675,7 +671,7 @@ class AdvectionOperatorP1(NumpyMatrixBasedOperator):
         assert advection_function.dim_domain == grid.dim
         assert advection_function.shape_range == (grid.dim,)
         self.__auto_init(locals())
-        self.source = self.range = CGVectorSpace(grid)
+        self.dim_source = self.dim_range = grid.size(grid.dim)
 
     def _assemble(self, mu=None):
         g = self.grid
@@ -775,7 +771,7 @@ class AdvectionOperatorQ1(NumpyMatrixBasedOperator):
                 and advection_function.dim_domain == grid.dim
                 and advection_function.shape_range == (grid.dim,))
         self.__auto_init(locals())
-        self.source = self.range = CGVectorSpace(grid)
+        self.dim_source = self.dim_range = grid.size(grid.dim)
 
     def _assemble(self, mu=None):
         g = self.grid
@@ -870,7 +866,7 @@ class RobinBoundaryOperator(NumpyMatrixBasedOperator):
                                                or f.shape_range == (grid.dim,))
                                           for f in robin_data)
         self.__auto_init(locals())
-        self.source = self.range = CGVectorSpace(grid)
+        self.dim_source = self.dim_range = grid.size(grid.dim)
 
     def _assemble(self, mu=None):
         g = self.grid
@@ -924,14 +920,14 @@ class InterpolationOperator(NumpyMatrixBasedOperator):
         The |Function| to interpolate.
     """
 
-    source = NumpyVectorSpace(1)
+    dim_source = 1
     linear = True
 
     def __init__(self, grid, function):
         assert function.dim_domain == grid.dim
         assert function.shape_range == ()
         self.__auto_init(locals())
-        self.range = CGVectorSpace(grid)
+        self.dim_range = grid.size(grid.dim)
 
     def _assemble(self, mu=None):
         return self.function.evaluate(self.grid.centers(self.grid.dim), mu=mu).reshape((-1, 1))

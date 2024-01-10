@@ -2,6 +2,8 @@
 # Copyright pyMOR developers and contributors. All rights reserved.
 # License: BSD 2-Clause License (https://opensource.org/licenses/BSD-2-Clause)
 
+import numpy as np
+
 from pymor.algorithms.gram_schmidt import gram_schmidt
 from pymor.algorithms.rules import RuleTable, match_class, match_generic
 from pymor.core.exceptions import ImageCollectionError, NoMatchingRuleError
@@ -9,8 +11,6 @@ from pymor.core.logger import getLogger
 from pymor.operators.constructions import ConcatenationOperator, LincombOperator, SelectionOperator
 from pymor.operators.ei import EmpiricalInterpolatedOperator
 from pymor.operators.interface import Operator
-from pymor.vectorarrays.interface import VectorArray
-from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 
 def estimate_image(operators=(), vectors=(),
@@ -67,24 +67,26 @@ def estimate_image(operators=(), vectors=(),
         Is raised when for a given |Operator| no image estimate is possible.
     """
     assert operators or vectors
-    domain_space = operators[0].source if operators else None
-    image_space = operators[0].range if operators \
-        else vectors[0].space if isinstance(vectors[0], VectorArray) \
-        else vectors[0].range
-    assert all(op.source == domain_space and op.range == image_space for op in operators)
+    dim_domain = operators[0].dim_source if operators else None
+    dim_image = operators[0].dim_range if operators \
+        else vectors[0].shape[1] if isinstance(vectors[0], np.ndarray) \
+        else vectors[0].dim_range
+    assert all(op.dim_source == dim_domain and op.dim_range == dim_image for op in operators)
     assert all(
-        isinstance(v, VectorArray) and (
-            v in image_space
+        isinstance(v, np.ndarray) and (
+            v.shape[1] == dim_image
         )
         or isinstance(v, Operator) and (
-            v.range == image_space and isinstance(v.source, NumpyVectorSpace) and v.linear
+            v.dim_range == dim_image and v.linear
         )
         for v in vectors
     )
-    assert domain is None or domain_space is None or domain in domain_space
-    assert product is None or product.source == product.range == image_space
+    if domain is not None and domain.ndim == 1:
+        domain = domain.reshape((1, -1))
+    assert domain is None or dim_domain is None or domain.shape[1] == dim_domain
+    assert product is None or product.dim_source == product.dim_range == dim_image
 
-    image = image_space.empty()
+    image = np.zeros((0, dim_image))
     if not extends:
         rules = CollectVectorRangeRules(image)
         for v in vectors:
@@ -92,21 +94,23 @@ def estimate_image(operators=(), vectors=(),
                 rules.apply(v)
             except NoMatchingRuleError as e:
                 raise ImageCollectionError(e.obj) from e
+        image = rules.image
 
     if operators and domain is None:
-        domain = domain_space.empty()
+        domain = np.zeros((0, dim_domain))
     for op in operators:
         rules = CollectOperatorRangeRules(domain, image, extends)
         try:
             rules.apply(op)
         except NoMatchingRuleError as e:
             raise ImageCollectionError(e.obj) from e
+    image = rules.image
 
     if riesz_representatives and product:
         image = product.apply_inverse(image)
 
     if orthonormalize:
-        gram_schmidt(image, product=product, copy=False)
+        image = gram_schmidt(image, product=product)
 
     return image
 
@@ -165,35 +169,35 @@ def estimate_image_hierarchical(operators=(), vectors=(), domain=None, extends=N
         Is raised when for a given |Operator| no image estimate is possible.
     """
     assert operators or vectors
-    domain_space = operators[0].source if operators else None
-    image_space = operators[0].range if operators \
-        else vectors[0].space if isinstance(vectors[0], VectorArray) \
-        else vectors[0].range
-    assert all(op.source == domain_space and op.range == image_space for op in operators)
+    dim_domain = operators[0].dim_source if operators else None
+    dim_image = operators[0].dim_range if operators \
+        else vectors[0].shape[1] if isinstance(vectors[0], np.ndarray) \
+        else vectors[0].dim_range
+    assert all(op.dim_source == dim_domain and op.dim_range == dim_image for op in operators)
     assert all(
-        isinstance(v, VectorArray) and (
-            v in image_space
+        isinstance(v, np.ndarray) and (
+            v.shape[1] in dim_image
         )
         or isinstance(v, Operator) and (
-            v.range == image_space and isinstance(v.source, NumpyVectorSpace) and v.linear
+            v.dim_range == dim_image and v.linear
         )
         for v in vectors
     )
-    assert domain is None or domain_space is None or domain in domain_space
-    assert product is None or product.source == product.range == image_space
+    assert domain is None or dim_domain is None or domain.shape[1] == dim_domain
+    assert product is None or product.dim_source == product.dim_range == dim_image
     assert extends is None or len(extends) == 2
 
     logger = getLogger('pymor.algorithms.image.estimate_image_hierarchical')
 
     if operators and domain is None:
-        domain = domain_space.empty()
+        domain = np.zeros((0, dim_domain))
 
     if extends:
         image = extends[0]
         image_dims = extends[1]
         ind_range = range(len(image_dims) - 1, len(domain)) if operators else range(len(image_dims) - 1, 0)
     else:
-        image = image_space.empty()
+        image = np.zeros((0, dim_image))
         image_dims = []
         ind_range = range(-1, len(domain)) if operators else [-1]
 
@@ -209,10 +213,10 @@ def estimate_image_hierarchical(operators=(), vectors=(), domain=None, extends=N
                                        riesz_representatives=riesz_representatives)
 
         gram_schmidt_offset = len(image)
-        image.append(new_image, remove_from_other=True)
+        image = np.vstack([image, new_image])
         if orthonormalize:
             with logger.block('Orthonormalizing ...'):
-                gram_schmidt(image, offset=gram_schmidt_offset, product=product, copy=False)
+                image = gram_schmidt(image, offset=gram_schmidt_offset, product=product)
             image_dims.append(len(image))
 
     return image, image_dims
@@ -227,7 +231,7 @@ class CollectOperatorRangeRules(RuleTable):
 
     @match_generic(lambda op: op.linear and not op.parametric)
     def action_apply_operator(self, op):
-        self.image.append(op.apply(self.source))
+        self.image = np.vstack([self.image, op.apply(self.source)])
 
     @match_class(LincombOperator, SelectionOperator)
     def action_recurse(self, op):
@@ -236,16 +240,20 @@ class CollectOperatorRangeRules(RuleTable):
     @match_class(EmpiricalInterpolatedOperator)
     def action_EmpiricalInterpolatedOperator(self, op):
         if hasattr(op, 'collateral_basis') and not self.extends:
-            self.image.append(op.collateral_basis)
+            self.image = np.vstack([self.image, op.collateral_basis])
 
     @match_class(ConcatenationOperator)
     def action_ConcatenationOperator(self, op):
         if len(op.operators) == 1:
             self.apply(op.operators[0])
         else:
-            firstrange = op.operators[-1].range.empty()
-            type(self)(self.source, firstrange, self.extends).apply(op.operators[-1])
-            type(self)(firstrange, self.image, self.extends).apply(op.with_(operators=op.operators[:-1]))
+            firstrange = np.zeros((0, op.operators[-1].dim_range))
+            rules = type(self)(self.source, firstrange, self.extends)
+            rules.apply(op.operators[-1])
+            first_range = rules.image
+            rules = type(self)(firstrange, self.image, self.extends)
+            rules.apply(op.with_(operators=op.operators[:-1]))
+            self.image = rules.image
 
 
 class CollectVectorRangeRules(RuleTable):
@@ -255,13 +263,13 @@ class CollectVectorRangeRules(RuleTable):
         super().__init__(use_caching=True)
         self.image = image
 
-    @match_class(VectorArray)
+    @match_class(np.ndarray)
     def action_VectorArray(self, obj):
-        self.image.append(obj)
+        self.image = np.vstack([self.image, obj])
 
     @match_generic(lambda op: op.linear and not op.parametric)
     def action_as_range_array(self, op):
-        self.image.append(op.as_range_array())
+        self.image = np.vstack([self.image, op.as_range_array()])
 
     @match_class(LincombOperator, SelectionOperator)
     def action_recurse(self, op):
@@ -273,5 +281,9 @@ class CollectVectorRangeRules(RuleTable):
             self.apply(op.operators[0])
         else:
             firstrange = op.operators[-1].range.empty()
-            CollectVectorRangeRules(firstrange).apply(op.operators[-1])
-            CollectOperatorRangeRules(firstrange, self.image, False).apply(op.with_(operators=op.operators[:-1]))
+            rules = CollectVectorRangeRules(firstrange)
+            rules.apply(op.operators[-1])
+            firstrange = rules.image
+            rules = CollectOperatorRangeRules(firstrange, self.image, False)
+            rules.apply(op.with_(operators=op.operators[:-1]))
+            self.image = rules.image

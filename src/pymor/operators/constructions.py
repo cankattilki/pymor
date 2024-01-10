@@ -15,8 +15,6 @@ from pymor.core.exceptions import InversionError
 from pymor.operators.interface import Operator
 from pymor.parameters.base import ParametricObject
 from pymor.parameters.functionals import ConjugateParameterFunctional, ParameterFunctional
-from pymor.vectorarrays.interface import VectorArray, VectorSpace
-from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 
 class LincombOperator(Operator):
@@ -43,14 +41,14 @@ class LincombOperator(Operator):
         assert len(operators) == len(coefficients)
         assert all(isinstance(op, Operator) for op in operators)
         assert all(isinstance(c, (ParameterFunctional, Number)) for c in coefficients)
-        assert all(op.source == operators[0].source for op in operators[1:])
-        assert all(op.range == operators[0].range for op in operators[1:])
+        assert all(op.dim_source == operators[0].dim_source for op in operators[1:])
+        assert all(op.dim_range == operators[0].dim_range for op in operators[1:])
         operators = tuple(operators)
         coefficients = tuple(coefficients)
 
         self.__auto_init(locals())
-        self.source = operators[0].source
-        self.range = operators[0].range
+        self.dim_source = operators[0].dim_source
+        self.dim_range = operators[0].dim_range
         self.linear = all(op.linear for op in operators)
 
     @property
@@ -82,12 +80,12 @@ class LincombOperator(Operator):
         coeffs = self.evaluate_coefficients(mu)
         if coeffs[0]:
             R = self.operators[0].apply(U, mu=mu)
-            R.scal(coeffs[0])
+            R *= coeffs[0]
         else:
-            R = self.range.zeros(len(U))
+            R = np.zeros((len(U), self.dim_range))
         for op, c in zip(self.operators[1:], coeffs[1:]):
             if c:
-                R.axpy(c, op.apply(U, mu=mu))
+                R += c * op.apply(U, mu=mu)
         return R
 
     def apply2(self, V, U, mu=None):
@@ -738,18 +736,18 @@ class ZeroOperator(Operator):
 
     linear = True
 
-    def __init__(self, range, source, name=None):
-        assert isinstance(range, VectorSpace)
-        assert isinstance(source, VectorSpace)
+    def __init__(self, dim_range, dim_source, name=None):
         self.__auto_init(locals())
 
     @property
     def H(self):
-        return type(self)(self.source, self.range, name=self.name + '_adjoint')
+        return type(self)(self.dim_source, self.dim_range, name=self.name + '_adjoint')
 
     def apply(self, U, mu=None):
-        assert U in self.source
-        return self.range.zeros(len(U))
+        if U.ndim == 1:
+            U = U.reshape((1, -1))
+        assert U.shape[1] == self.dim_source
+        return np.zeros((len(U), self.dim_range))
 
     def apply_adjoint(self, V, mu=None):
         assert V in self.range
@@ -893,7 +891,7 @@ class VectorOperator(VectorArrayOperator):
     """
 
     linear = True
-    source = NumpyVectorSpace(1)
+    dim_source = 1
 
     def __init__(self, vector, name=None):
         assert isinstance(vector, VectorArray)
@@ -932,7 +930,7 @@ class VectorFunctional(VectorArrayOperator):
     """
 
     linear = True
-    range = NumpyVectorSpace(1)
+    dim_range = 1
 
     def __init__(self, vector, product=None, name=None):
         assert isinstance(vector, VectorArray)
@@ -1472,7 +1470,7 @@ class QuadraticFunctional(Operator):
     """
 
     linear = False
-    range = NumpyVectorSpace(1)
+    dim_range = 1
 
     def __init__(self, operator, name=None):
         assert operator.linear
@@ -1512,7 +1510,7 @@ class QuadraticProductFunctional(QuadraticFunctional):
     """
 
     linear = False
-    range = NumpyVectorSpace(1)
+    dim_range = 1
 
     def __init__(self, left, right, product=None, name=None):
         assert left.source == right.source

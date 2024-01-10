@@ -14,7 +14,8 @@ from pymor.core.base import BasicObject, abstractmethod
 from pymor.core.defaults import defaults
 from pymor.core.exceptions import AccuracyError, ExtensionError
 from pymor.models.basic import InstationaryModel, StationaryModel
-from pymor.models.iosys import LinearDelayModel, LTIModel, SecondOrderModel
+
+# from pymor.models.iosys import LinearDelayModel, LTIModel, SecondOrderModel
 from pymor.operators.constructions import ConcatenationOperator, IdentityOperator, InverseOperator
 from pymor.operators.numpy import NumpyMatrixOperator
 
@@ -121,14 +122,16 @@ class ProjectionBasedReductor(BasicObject):
 
     def reconstruct(self, u, basis='RB'):
         """Reconstruct high-dimensional vector from reduced vector `u`."""
-        return self.bases[basis][:u.dim].lincomb(u.to_numpy())
+        return u @ self.bases[basis][:u.shape[1]]
 
     def extend_basis(self, U, basis='RB', method='gram_schmidt', pod_modes=1, pod_orthonormalize=True, copy_U=True):
         basis_length = len(self.bases[basis])
 
-        extend_basis(U, self.bases[basis], self.products.get(basis), method=method, pod_modes=pod_modes,
-                     pod_orthonormalize=pod_orthonormalize,
-                     copy_U=copy_U)
+        self.bases[basis] = extend_basis(
+            U, self.bases[basis], self.products.get(basis), method=method, pod_modes=pod_modes,
+            pod_orthonormalize=pod_orthonormalize,
+            copy_U=copy_U
+        )
 
         self._check_orthonormality(basis, basis_length)
 
@@ -166,8 +169,8 @@ class StationaryRBReductor(ProjectionBasedReductor):
 
     def __init__(self, fom, RB=None, product=None, check_orthonormality=None, check_tol=None):
         assert isinstance(fom, StationaryModel)
-        RB = fom.solution_space.empty() if RB is None else RB
-        assert RB in fom.solution_space
+        RB = np.zeros((0, fom.dim_solution)) if RB is None else RB
+        assert RB.shape[1] == fom.dim_solution
         super().__init__(fom, {'RB': RB}, {'RB': product},
                          check_orthonormality=check_orthonormality, check_tol=check_tol)
 
@@ -472,12 +475,12 @@ def extend_basis(U, basis, product=None, method='gram_schmidt', pod_modes=1, pod
         for i in range(len(U)):
             if np.any(almost_equal(U[i], basis)):
                 remove.add(i)
-        basis.append(U[[i for i in range(len(U)) if i not in remove]],
-                     remove_from_other=(not copy_U))
+        basis = np.vstack([basis, U[[i for i in range(len(U)) if i not in remove]]])
     elif method == 'gram_schmidt':
-        basis.append(U, remove_from_other=(not copy_U))
-        gram_schmidt(basis, offset=basis_length, product=product, copy=False, check=False)
+        basis = np.vstack([basis, U])
+        basis = gram_schmidt(basis, offset=basis_length, product=product, check=False)
     elif method == 'pod':
+        raise NotImplementedError
         U_proj_err = U - basis.lincomb(U.inner(basis, product))
 
         basis.append(pod(U_proj_err, modes=pod_modes, product=product, orth_tol=np.inf)[0])
@@ -487,3 +490,5 @@ def extend_basis(U, basis, product=None, method='gram_schmidt', pod_modes=1, pod
 
     if len(basis) <= basis_length:
         raise ExtensionError
+
+    return basis

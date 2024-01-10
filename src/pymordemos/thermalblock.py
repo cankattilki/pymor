@@ -6,6 +6,7 @@
 import sys
 import time
 
+import numpy as np
 from typer import Argument, Option, run
 
 from pymor.algorithms.error import plot_reduction_error_analysis, reduction_error_analysis
@@ -47,10 +48,6 @@ def main(
              'parallel greedy search. If zero, no parallelization is performed.'
     ),
     ipython_profile: str = Option(None, help='IPython profile to use for parallelization.'),
-    list_vector_array: bool = Option(
-        False,
-        help='Solve using ListVectorArray[NumpyVector] instead of NumpyVectorArray.'
-    ),
     order: int = Option(1, help='Polynomial order of the Lagrange finite elements to use in FEniCS.'),
     pickle: str = Option(
         None,
@@ -81,7 +78,7 @@ def main(
     if fenics:
         fom, fom_summary = discretize_fenics(xblocks, yblocks, grid, order)
     else:
-        fom, fom_summary = discretize_pymor(xblocks, yblocks, grid, list_vector_array)
+        fom, fom_summary = discretize_pymor(xblocks, yblocks, grid)
 
     parameter_space = fom.parameters.space(0.1, 1.)
 
@@ -193,10 +190,10 @@ def main(
     test_results = results
 
 
-def discretize_pymor(xblocks, yblocks, grid_num_intervals, use_list_vector_array):
+def discretize_pymor(xblocks, yblocks, grid_num_intervals):
     from pymor.analyticalproblems.thermalblock import thermal_block_problem
     from pymor.discretizers.builtin import discretize_stationary_cg
-    from pymor.discretizers.builtin.list import convert_to_numpy_list_vector_array
+    # from pymor.discretizers.builtin.list import convert_to_numpy_list_vector_array
 
     print('Discretize ...')
     # setup analytical problem
@@ -205,13 +202,9 @@ def discretize_pymor(xblocks, yblocks, grid_num_intervals, use_list_vector_array
     # discretize using continuous finite elements
     fom, _ = discretize_stationary_cg(problem, diameter=1. / grid_num_intervals)
 
-    if use_list_vector_array:
-        fom = convert_to_numpy_list_vector_array(fom)
-
     summary = f"""pyMOR model:
    number of blocks: {xblocks}x{yblocks}
    grid intervals:   {grid_num_intervals}
-   ListVectorArray:  {use_list_vector_array}
 """
 
     return fom, summary
@@ -286,7 +279,7 @@ def reduce_greedy(fom, reductor, parameter_space, snapshots_per_block,
     rom = greedy_data['rom']
 
     # generate summary
-    real_rb_size = rom.solution_space.dim
+    real_rb_size = rom.dim_solution
     training_set_size = len(training_set)
     summary = f"""Greedy basis generation:
    size of training set:   {training_set_size}
@@ -314,7 +307,7 @@ def reduce_adaptive_greedy(fom, reductor, parameter_space, validation_mus,
     rom = greedy_data['rom']
 
     # generate summary
-    real_rb_size = rom.solution_space.dim
+    real_rb_size = rom.dim_solution
     # the validation set consists of `validation_mus` random parameters plus the centers of the
     # adaptive sample set cells
     validation_mus += 1
@@ -338,9 +331,9 @@ def reduce_pod(fom, reductor, parameter_space, snapshots_per_block, basis_size):
     training_set = parameter_space.sample_uniformly(snapshots_per_block)
 
     print('Solving on training set ...')
-    snapshots = fom.operator.source.empty(reserve=len(training_set))
+    snapshots = np.zeros((0, fom.dim_solution))
     for mu in training_set:
-        snapshots.append(fom.solve(mu))
+        snapshots = np.vstack([snapshots, fom.solve(mu)])
 
     print('Performing POD ...')
     basis, singular_values = pod(snapshots, modes=basis_size, product=reductor.products['RB'])
@@ -352,7 +345,7 @@ def reduce_pod(fom, reductor, parameter_space, snapshots_per_block, basis_size):
     elapsed_time = time.perf_counter() - tic
 
     # generate summary
-    real_rb_size = rom.solution_space.dim
+    real_rb_size = rom.dim_solution
     training_set_size = len(training_set)
     summary = f"""POD basis generation:
    size of training set:   {training_set_size}

@@ -15,8 +15,6 @@ from pymor.operators.constructions import (
 )
 from pymor.operators.interface import Operator
 from pymor.operators.numpy import NumpyMatrixOperator
-from pymor.vectorarrays.interface import VectorArray
-from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 
 class EmpiricalInterpolatedOperator(Operator):

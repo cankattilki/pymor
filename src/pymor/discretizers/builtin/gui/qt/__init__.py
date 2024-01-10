@@ -38,8 +38,6 @@ from qtpy.QtWidgets import (
 from pymor.core.defaults import defaults
 from pymor.core.logger import getLogger
 from pymor.core.pickle import dump
-from pymor.vectorarrays.interface import VectorArray
-from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 
 @defaults('method')
@@ -308,8 +306,8 @@ def visualize_patch(grid, U, bounding_box=([0, 0], [1, 1]), codim=2, title=None,
         at the same time.
     """
     assert backend in {'gl', 'matplotlib'}
-    assert isinstance(U, VectorArray) \
-        or (isinstance(U, tuple) and all(isinstance(u, VectorArray) for u in U)
+    assert isinstance(U, np.ndarray) \
+        or (isinstance(U, tuple) and all(isinstance(u, np.ndarray) for u in U)
             and all(len(u) == len(U[0]) for u in U))
     if isinstance(legend, str):
         legend = (legend,)
@@ -327,8 +325,8 @@ def visualize_patch(grid, U, bounding_box=([0, 0], [1, 1]), codim=2, title=None,
             subprocess.Popen(['python3', '-m', 'pymor.scripts.pymor_vis', '--delete', filename])
             return
 
-    U = (U.to_numpy().astype(np.float64, copy=False),) if isinstance(U, VectorArray) else \
-        tuple(u.to_numpy().astype(np.float64, copy=False) for u in U)
+    U = (U.astype(np.float64, copy=False),) if isinstance(U, np.ndarray) else \
+        tuple(u.astype(np.float64, copy=False) for u in U)
 
     if backend == 'gl':
         if not config.HAVE_GL:

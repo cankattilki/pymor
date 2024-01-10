@@ -25,7 +25,6 @@ from pymor.operators.constructions import (
     VectorArrayOperator,
     ZeroOperator,
 )
-from pymor.vectorarrays.constructions import cat_arrays
 
 
 def assemble_lincomb(operators, coefficients, solver_options=None, name=None):

@@ -4,6 +4,7 @@
 
 import numpy as np
 
+from pymor.algorithms.basic import inner, norm, pairwise_inner
 from pymor.core.defaults import defaults
 from pymor.core.exceptions import AccuracyError
 from pymor.core.logger import getLogger
@@ -11,8 +12,7 @@ from pymor.core.logger import getLogger
 
 @defaults('atol', 'rtol', 'reiterate', 'reiteration_threshold', 'check', 'check_tol')
 def gram_schmidt(A, product=None, return_R=False, atol=1e-13, rtol=1e-13, offset=0,
-                 reiterate=True, reiteration_threshold=9e-1, check=True, check_tol=1e-3,
-                 copy=True):
+                 reiterate=True, reiteration_threshold=9e-1, check=True, check_tol=1e-3):
     """Orthonormalize a |VectorArray| using the modified Gram-Schmidt algorithm.
 
     Parameters
@@ -54,15 +54,16 @@ def gram_schmidt(A, product=None, return_R=False, atol=1e-13, rtol=1e-13, offset
     """
     logger = getLogger('pymor.algorithms.gram_schmidt.gram_schmidt')
 
-    if copy:
-        A = A.copy()
+    if A.ndim == 1:
+        A = A.reshape((1, -1))
+    A = A.copy()
 
     # main loop
     R = np.eye(len(A))
     remove = []  # indices of to be removed vectors
     for i in range(offset, len(A)):
         # first calculate norm
-        initial_norm = A[i].norm(product)[0]
+        initial_norm = norm(A[i], product)[0]
 
         if initial_norm <= atol:
             logger.info(f'Removing vector {i} of norm {initial_norm}')
@@ -70,10 +71,10 @@ def gram_schmidt(A, product=None, return_R=False, atol=1e-13, rtol=1e-13, offset
             continue
 
         if i == 0:
-            A[0].scal(1 / initial_norm)
+            A[0] *= 1 / initial_norm
             R[i, i] = initial_norm
         else:
-            norm = initial_norm
+            current_norm = initial_norm
             # If reiterate is True, reiterate as long as the norm of the vector changes
             # strongly during orthogonalization (due to Andreas Buhr).
             while True:
@@ -81,35 +82,35 @@ def gram_schmidt(A, product=None, return_R=False, atol=1e-13, rtol=1e-13, offset
                 for j in range(i):
                     if j in remove:
                         continue
-                    p = A[j].pairwise_inner(A[i], product)[0]
-                    A[i].axpy(-p, A[j])
+                    p = pairwise_inner(A[j], A[i], product)[0]
+                    A[i] -= p * A[j]
                     common_dtype = np.promote_types(R.dtype, type(p))
                     R = R.astype(common_dtype, copy=False)
                     R[j, i] += p
 
                 # calculate new norm
-                old_norm, norm = norm, A[i].norm(product)[0]
+                old_norm, current_norm = current_norm, norm(A[i], product)[0]
 
                 # remove vector if it got too small
-                if norm <= rtol * initial_norm:
+                if current_norm <= rtol * initial_norm:
                     logger.info(f'Removing linearly dependent vector {i}')
                     remove.append(i)
                     break
 
                 # check if reorthogonalization should be done
-                if reiterate and norm < reiteration_threshold * old_norm:
+                if reiterate and current_norm < reiteration_threshold * old_norm:
                     logger.info(f'Orthonormalizing vector {i} again')
                 else:
-                    A[i].scal(1 / norm)
-                    R[i, i] = norm
+                    A[i] *= 1 / current_norm
+                    R[i, i] = current_norm
                     break
 
     if remove:
-        del A[remove]
+        A = np.delete(A, remove, axis=0)
         R = np.delete(R, remove, axis=0)
 
     if check:
-        error_matrix = A[offset:len(A)].inner(A, product)
+        error_matrix = inner(A[offset:len(A)], A, product)
         error_matrix[:len(A) - offset, offset:len(A)] -= np.eye(len(A) - offset)
         if error_matrix.size > 0:
             err = np.max(np.abs(error_matrix))

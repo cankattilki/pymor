@@ -4,11 +4,9 @@
 
 import numpy as np
 
-from pymor.algorithms.timestepping import TimeStepper
+# from pymor.algorithms.timestepping import TimeStepper
 from pymor.models.interface import Model
 from pymor.operators.constructions import ConstantOperator, IdentityOperator, VectorOperator, ZeroOperator
-from pymor.vectorarrays.interface import VectorArray
-from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 
 class StationaryModel(Model):
@@ -61,22 +59,22 @@ class StationaryModel(Model):
     def __init__(self, operator, rhs, output_functional=None, products=None,
                  error_estimator=None, visualizer=None, name=None):
 
-        if isinstance(rhs, VectorArray):
+        if isinstance(rhs, np.ndarray):
             assert rhs in operator.range
             rhs = VectorOperator(rhs, name='rhs')
-        output_functional = output_functional or ZeroOperator(NumpyVectorSpace(0), operator.source)
+        output_functional = output_functional or ZeroOperator(0, operator.dim_source)
 
-        assert rhs.range == operator.range
-        assert rhs.source.is_scalar
+        assert rhs.dim_range == operator.dim_range
+        assert rhs.dim_source == 1
         assert rhs.linear
-        assert output_functional.source == operator.source
+        assert output_functional.dim_source == operator.dim_source
 
         super().__init__(products=products, error_estimator=error_estimator, visualizer=visualizer, name=name)
 
         self.__auto_init(locals())
-        self.solution_space = operator.source
+        self.dim_solution = operator.dim_source
         self.linear = operator.linear and output_functional.linear
-        self.dim_output = output_functional.range.dim
+        self.dim_output = output_functional.dim_range
 
     def __str__(self):
         return (

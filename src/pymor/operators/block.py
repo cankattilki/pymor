@@ -6,7 +6,6 @@ import numpy as np
 
 from pymor.operators.constructions import IdentityOperator, ZeroOperator
 from pymor.operators.interface import Operator
-from pymor.vectorarrays.block import BlockVectorSpace
 
 
 class BlockOperatorBase(Operator):

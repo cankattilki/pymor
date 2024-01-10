@@ -9,7 +9,6 @@ from pymor.core.config import is_jupyter
 from pymor.core.defaults import defaults
 from pymor.discretizers.builtin.grids.oned import OnedGrid
 from pymor.discretizers.builtin.grids.referenceelements import square, triangle
-from pymor.vectorarrays.interface import VectorArray
 
 
 class PatchVisualizer(ImmutableObject):
@@ -79,9 +78,9 @@ class PatchVisualizer(ImmutableObject):
         kwargs
             Additional backend-specific arguments.
         """
-        assert isinstance(U, VectorArray) \
+        assert isinstance(U, np.ndarray) \
             or (isinstance(U, tuple)
-                and all(isinstance(u, VectorArray) for u in U)
+                and all(isinstance(u, np.ndarray) for u in U)
                 and all(len(u) == len(U[0]) for u in U))
         if filename:
             from pymor.discretizers.builtin.grids.vtkio import write_vtk

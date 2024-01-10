@@ -22,7 +22,6 @@ from pymor.operators.constructions import (
 )
 from pymor.operators.ei import EmpiricalInterpolatedOperator, ProjectedEmpiricalInterpolatedOperator
 from pymor.operators.numpy import NumpyMatrixOperator
-from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 
 def project(op, range_basis, source_basis, product=None):
@@ -69,9 +68,9 @@ def project(op, range_basis, source_basis, product=None):
     -------
     The projected |Operator| `op_proj`.
     """
-    assert source_basis is None or source_basis in op.source
-    assert range_basis is None or range_basis in op.range
-    assert product is None or product.source == product.range == op.range
+    assert source_basis is None or source_basis.shape[1] == op.dim_source
+    assert range_basis is None or range_basis.shape[1] == op.dim_range
+    assert product is None or product.dim_source == product.dim_range == op.dim_range
 
     if range_basis is None and source_basis is None:
         return op  # do not change the name
@@ -99,9 +98,9 @@ class ProjectRules(RuleTable):
             from pymor.operators.numpy import NumpyMatrixOperator
             return NumpyMatrixOperator(np.zeros((len(range_basis), len(source_basis))))
         else:
-            new_source = NumpyVectorSpace(len(source_basis)) if source_basis is not None else op.source
-            new_range = NumpyVectorSpace(len(range_basis)) if range_basis is not None else op.range
-            return ZeroOperator(new_range, new_source)
+            new_dim_source = len(source_basis) if source_basis is not None else op.dim_source
+            new_dim_range = len(range_basis) if range_basis is not None else op.dim_range
+            return ZeroOperator(new_dim_range, new_dim_source)
 
     @match_class(ConstantOperator)
     def action_ConstantOperator(self, op):
@@ -123,12 +122,8 @@ class ProjectRules(RuleTable):
                 V = op.apply_adjoint(range_basis)
             except NotImplementedError as e:
                 raise RuleNotMatchingError('apply_adjoint not implemented') from e
-            if isinstance(op.source, NumpyVectorSpace):
-                from pymor.operators.numpy import NumpyMatrixOperator
-                return NumpyMatrixOperator(V.to_numpy().conj(), source_id=op.source.id)
-            else:
-                from pymor.operators.constructions import VectorArrayOperator
-                return VectorArrayOperator(V, adjoint=True)
+            from pymor.operators.numpy import NumpyMatrixOperator
+            return NumpyMatrixOperator(V.conj())
         else:
             if range_basis is None:
                 V = op.apply(source_basis)
@@ -280,8 +275,8 @@ def project_to_subbasis(op, dim_range=None, dim_source=None):
     -------
     The projected |Operator|.
     """
-    assert dim_source is None or (isinstance(op.source, NumpyVectorSpace) and dim_source <= op.source.dim)
-    assert dim_range is None or (isinstance(op.range, NumpyVectorSpace) and dim_range <= op.range.dim)
+    assert dim_source is None or dim_source <= op.dim_source
+    assert dim_range is None or dim_range <= op.dim_range
 
     if dim_range is None and dim_source is None:
         return op
@@ -304,8 +299,7 @@ class ProjectToSubbasisRules(RuleTable):
     def action_NumpyMatrixOperator(self, op):
         # copy instead of just slicing the matrix to ensure contiguous memory
         return NumpyMatrixOperator(op.matrix[:self.dim_range, :self.dim_source].copy(),
-                                   solver_options=op.solver_options,
-                                   source_id=op.source.id, range_id=op.range.id)
+                                   solver_options=op.solver_options)
 
     @match_class(ConstantOperator)
     def action_ConstantOperator(self, op):
@@ -325,9 +319,9 @@ class ProjectToSubbasisRules(RuleTable):
     @match_class(ZeroOperator)
     def action_ZeroOperator(self, op):
         dim_range, dim_source = self.dim_range, self.dim_source
-        range_space = op.range if dim_range is None else NumpyVectorSpace(dim_range)
-        source_space = op.source if dim_source is None else NumpyVectorSpace(dim_source)
-        return ZeroOperator(range_space, source_space)
+        dim_range = op.dim_range if dim_range is None else dim_range
+        dim_source = op.dim_source if dim_source is None else dim_source
+        return ZeroOperator(dim_range, dim_source)
 
     @match_class(ProjectedEmpiricalInterpolatedOperator)
     def action_ProjectedEmpiricalInterpolatedOperator(self, op):
