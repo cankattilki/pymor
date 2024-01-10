@@ -11,6 +11,27 @@ from pymor.core.defaults import defaults
 from pymor.tools.floatcmp import float_cmp
 
 
+def inner(U, V, product=None):
+    if product is None:
+        return U.conj().dot(V.T)
+    else:
+        return product.apply2(U, V)
+
+
+def pairwise_inner(U, V, product=None):
+    if product is None:
+        return np.sum(U.conj()* V, axis=1)
+    else:
+        return product.pairwise_apply2(U, V)
+
+
+def norm(U, product=None):
+    if product is None:
+        return np.linalg.norm(U, axis=1)
+    else:
+        return np.sqrt(product.pairwise_apply2(U, U))
+
+
 @defaults('rtol', 'atol')
 def almost_equal(U, V, product=None, sup_norm=False, rtol=1e-14, atol=1e-14):
     """Compare U and V for almost equality.
