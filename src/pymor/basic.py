@@ -109,9 +109,6 @@ from pymor.reductors.sobt import (
 )
 from pymor.reductors.sor_irka import SORIRKAReductor
 from pymor.tools.random import get_rng, new_rng
-from pymor.vectorarrays.constructions import cat_arrays
-from pymor.vectorarrays.list import ListVectorSpace
-from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 try:
     from pymor.models.interact import interact
