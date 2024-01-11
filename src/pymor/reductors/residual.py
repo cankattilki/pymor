@@ -118,7 +118,7 @@ class ResidualOperator(Operator):
         self.linear = operator.linear
         self.rhs_vector = rhs.as_range_array() if rhs and not rhs.parametric else None
 
-    def apply(self, U, mu=None):
+    def _apply(self, U, mu=None):
         V = self.operator.apply(U, mu=mu)
         if self.rhs:
             F = self.rhs_vector if self.rhs_vector is not None else self.rhs.as_range_array(mu)
@@ -144,7 +144,7 @@ class NonProjectedResidualOperator(ResidualOperator):
         super().__init__(operator, rhs)
         self.__auto_init(locals())
 
-    def apply(self, U, mu=None):
+    def _apply(self, U, mu=None):
         R = super().apply(U, mu=mu)
         if self.product:
             if self.riesz_representatives:
@@ -270,7 +270,7 @@ class ImplicitEulerResidualOperator(Operator):
         self.linear = operator.linear
         self.rhs_vector = rhs.as_range_array() if not rhs.parametric else None
 
-    def apply(self, U, U_old, mu=None):
+    def _apply(self, U, U_old, mu=None):
         V = self.operator.apply(U, mu=mu)
         V.axpy(1./self.dt, self.mass.apply(U, mu=mu))
         V.axpy(-1./self.dt, self.mass.apply(U_old, mu=mu))
@@ -300,7 +300,7 @@ class NonProjectedImplicitEulerResidualOperator(ImplicitEulerResidualOperator):
         super().__init__(operator, mass, rhs, dt)
         self.product = product
 
-    def apply(self, U, U_old, mu=None):
+    def _apply(self, U, U_old, mu=None):
         R = super().apply(U, U_old, mu=mu)
         if self.product:
             R_riesz = self.product.apply_inverse(R)

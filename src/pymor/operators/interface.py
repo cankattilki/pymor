@@ -7,7 +7,7 @@ from numbers import Number
 import numpy as np
 
 from pymor.algorithms import genericsolvers
-from pymor.algorithms.basic import inner, pairwise_inner
+from pymor.algorithms.basic import as_2d_array, inner, pairwise_inner
 from pymor.core.base import abstractmethod
 from pymor.core.defaults import defaults
 from pymor.core.exceptions import InversionError, LinAlgError
@@ -72,7 +72,6 @@ class Operator(ParametricObject):
         from pymor.operators.constructions import AdjointOperator
         return AdjointOperator(self)
 
-    @abstractmethod
     def apply(self, U, mu=None):
         """Apply the operator to a |VectorArray|.
 
@@ -87,6 +86,13 @@ class Operator(ParametricObject):
         -------
         |VectorArray| of the operator evaluations.
         """
+        assert self.parameters.assert_compatible(mu)
+        U = as_2d_array(U)
+        assert U.shape[1] == self.dim_source
+        return self._apply(U, mu=mu)
+
+    @abstractmethod
+    def _apply(self, U, mu=None):
         pass
 
     def apply2(self, V, U, mu=None):
@@ -115,7 +121,14 @@ class Operator(ParametricObject):
         A |NumPy array| with shape `(len(V), len(U))` containing the 2-form
         evaluations.
         """
+        V = as_2d_array(V)
+        U = as_2d_array(U)
+        assert V.shape[1] == self.dim_range
+        assert U.shape[1] == self.dim_source
         assert self.parameters.assert_compatible(mu)
+        return self._apply2(V, U, mu=mu)
+
+    def _apply2(self, V, U, mu=None):
         AU = self.apply(U, mu=mu)
         return inner(V, AU)
 
@@ -146,8 +159,15 @@ class Operator(ParametricObject):
         A |NumPy array| with shape `(len(V),) == (len(U),)` containing
         the 2-form evaluations.
         """
+        V = as_2d_array(V)
+        U = as_2d_array(U)
         assert self.parameters.assert_compatible(mu)
+        assert V.shape[1] == self.dim_range
+        assert U.shape[1] == self.dim_source
         assert len(U) == len(V)
+        return self._pairwise_apply2(V, U, mu=mu)
+
+    def _pairwise_apply2(self, V, U, mu=None):
         AU = self.apply(U, mu=mu)
         return pairwise_inner(V, AU)
 
@@ -175,12 +195,19 @@ class Operator(ParametricObject):
         -------
         |VectorArray| of the adjoint operator evaluations.
         """
-        if self.linear:
-            raise NotImplementedError
-        else:
+        V = as_2d_array(V)
+        assert V.shape[1] == self.dim_range
+        assert self.parameters.assert_compatible(mu)
+        if not self.linear:
             raise LinAlgError('Operator not linear.')
+        return self._apply_adjoint(V, mu=mu)
 
-    def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
+    def _apply_adjoint(self, V, mu=None):
+        raise NotImplementedError
+
+    @defaults('check_finite')
+    def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False,
+                      check_finite=True, check_cond=True):
         """Apply the inverse operator.
 
         Parameters
@@ -205,6 +232,8 @@ class Operator(ParametricObject):
             |solver_options| are set for the operator, most implementations
             will choose a least squares solver by default which may be
             undesirable.
+        check_finite
+            Test if solution only contains finite values.
 
         Returns
         -------
@@ -215,8 +244,22 @@ class Operator(ParametricObject):
         InversionError
             The operator could not be inverted.
         """
+        V = as_2d_array(V)
+        if initial_guess is not None:
+            initial_guess = as_2d_array(initial_guess)
         assert V.shape[1] == self.dim_range
         assert initial_guess is None or initial_guess.shape[1] == self.dim_source and len(initial_guess) == len(V)
+        assert self.parameters.assert_compatible(mu)
+        if self.dim_source != self.dim_range and not least_squares:
+            raise InversionError
+
+        R = self._apply_inverse(V, mu=mu, initial_guess=initial_guess, least_squares=least_squares)
+        if check_finite:
+            if not np.isfinite(np.sum(R)):
+                raise InversionError('Result contains non-finite values')
+        return R
+
+    def _apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
         from pymor.operators.constructions import FixedParameterOperator
         assembled_op = self.assemble(mu)
         if assembled_op != self and not isinstance(assembled_op, FixedParameterOperator):
@@ -314,9 +357,18 @@ class Operator(ParametricObject):
         InversionError
             The operator could not be inverted.
         """
-        from pymor.operators.constructions import FixedParameterOperator
+        U = as_2d_array(U)
+        if initial_guess is not None:
+            initial_guess = as_2d_array(initial_guess)
+        assert U.shape[1] == self.dim_source
+        assert initial_guess is None or initial_guess.shape[1] == self.dim_range and len(initial_guess) == len(U)
+        assert self.parameters.assert_compatible(mu)
         if not self.linear:
             raise LinAlgError('Operator not linear.')
+        return self._apply_inverse_adjoint(U, mu=mu, initial_guess=initial_guess, least_squares=least_squares)
+
+    def _apply_inverse_adjoint(self, U, mu=None, initial_guess=None, least_squares=False):
+        from pymor.operators.constructions import FixedParameterOperator
         assembled_op = self.assemble(mu)
         if assembled_op != self and not isinstance(assembled_op, FixedParameterOperator):
             return assembled_op.apply_inverse_adjoint(U, initial_guess=initial_guess, least_squares=least_squares)
@@ -342,13 +394,19 @@ class Operator(ParametricObject):
         -------
         Linear |Operator| representing the Jacobian.
         """
+        U = as_2d_array(U)
+        assert len(U) == 1
+        assert U.shape[1] == self.dim_source
+        assert self.parameters.assert_compatible(mu)
         if self.linear:
             if self.parametric:
                 return self.assemble(mu)
             else:
                 return self
-        else:
-            raise NotImplementedError
+        return self._jacobian(U, mu=mu)
+
+    def _jacobian(self, U, mu=None):
+        raise NotImplementedError
 
     def d_mu(self, parameter, index=0):
         """Return the operator's derivative with respect to a given parameter.
@@ -394,8 +452,12 @@ class Operator(ParametricObject):
         V
             The |VectorArray| defined above.
         """
+        assert self.parameters.assert_compatible(mu)
         assert self.linear
         assert self.dim_source <= as_array_max_length()
+        return self._as_range_array(mu=mu)
+
+    def _as_range_array(self, mu=None):
         return self.apply(np.eye(self.dim_source), mu=mu)
 
     def as_source_array(self, mu=None):
@@ -422,8 +484,12 @@ class Operator(ParametricObject):
         V
             The |VectorArray| defined above.
         """
+        assert self.parameters.assert_compatible(mu)
         assert self.linear
         assert self.range.dim <= as_array_max_length()
+        return self._as_source_array(mu=mu)
+
+    def _as_source_array(self, mu=None):
         return self.apply_adjoint(self.range.from_numpy(np.eye(self.range.dim)), mu=mu)
 
     def as_vector(self, mu=None):
@@ -447,6 +513,7 @@ class Operator(ParametricObject):
         V
             |VectorArray| of length 1 containing the vector representation.
         """
+        assert self.parameters.assert_compatible(mu)
         if not self.linear:
             raise TypeError('This nonlinear operator does not represent a vector or linear functional.')
         if self.source.is_scalar:
@@ -476,6 +543,10 @@ class Operator(ParametricObject):
         -------
         Parameter-independent, assembled |Operator|.
         """
+        assert self.parameters.assert_compatible(mu)
+        return self._assemble(mu)
+
+    def _assemble(self, mu=None):
         if self.parametric:
             from pymor.operators.constructions import FixedParameterOperator
 

@@ -11,11 +11,17 @@ from pymor.core.defaults import defaults
 from pymor.tools.floatcmp import float_cmp
 
 
-def inner(U, V, product=None):
+def as_2d_array(U):
+    U = np.asarray(U)
+    assert 1 <= U.ndim <= 2
     if U.ndim == 1:
-        U = U.reshape((1, -1))
-    if V.ndim == 1:
-        V = V.reshape((1, -1))
+        return U.reshape((1, -1))
+    return U
+
+
+def inner(U, V, product=None):
+    U = as_2d_array(U)
+    V = as_2d_array(V)
     if product is None:
         return U.conj().dot(V.T)
     else:
@@ -23,10 +29,8 @@ def inner(U, V, product=None):
 
 
 def pairwise_inner(U, V, product=None):
-    if U.ndim == 1:
-        U = U.reshape((1, -1))
-    if V.ndim == 1:
-        V = V.reshape((1, -1))
+    U = as_2d_array(U)
+    V = as_2d_array(V)
     if product is None:
         return np.sum(U.conj()* V, axis=1)
     else:
@@ -38,8 +42,7 @@ def gramian(U, product=None):
 
 
 def norm(U, product=None):
-    if U.ndim == 1:
-        U = U.reshape((1, -1))
+    U = as_2d_array(U)
     if product is None:
         return np.linalg.norm(U, axis=1)
     else:
@@ -77,10 +80,8 @@ def almost_equal(U, V, product=None, sup_norm=False, rtol=1e-14, atol=1e-14):
         The absolute tolerance.
     """
     assert product is None or not sup_norm
-    if U.ndim == 1:
-        U = U.reshape((1, -1))
-    if V.ndim == 1:
-        V = V.reshape((1, -1))
+    U = as_2d_array(U)
+    V = as_2d_array(V)
 
     V_norm = V.sup_norm() if sup_norm else norm(V, product)
     X = V.copy()

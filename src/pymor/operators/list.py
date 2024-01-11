@@ -27,20 +27,14 @@ class ListVectorArrayOperatorBase(Operator):
     def _apply_inverse_adjoint_one_vector(self, u, mu=None, initial_guess=None, least_squares=False, prepare_data=None):
         raise NotImplementedError
 
-    def apply(self, U, mu=None):
-        if U.ndim == 1:
-            U = U.reshape((1, -1))
-        assert U.shape[1] == self.dim_source
+    def _apply(self, U, mu=None):
         if len(U) == 0:
             return np.zeros((0, self.dim_range))
         data = self._prepare_apply(U, mu, 'apply')
         V = [self._apply_one_vector(u, mu=mu, prepare_data=data) for u in U]
         return np.array(V)
 
-    def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
-        if V.ndim == 1:
-            V = V.reshape((1, -1))
-        assert V.shape[1] == self.dim_range
+    def _apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
         if len(V) == 0:
             return np.zeros((0, self.dim_source))
         if initial_guess is not None and initial_guess.ndim == 1:
@@ -57,10 +51,7 @@ class ListVectorArrayOperatorBase(Operator):
             return super().apply_inverse(V, mu=mu, least_squares=least_squares)
         return np.array(U)
 
-    def apply_adjoint(self, V, mu=None):
-        if V.ndim == 1:
-            V = V.reshape((1, -1))
-        assert V.shape[1] == self.dim_range
+    def _apply_adjoint(self, V, mu=None):
         if len(V) == 0:
             return np.zeros((0, self.dim_source))
         try:
@@ -70,9 +61,8 @@ class ListVectorArrayOperatorBase(Operator):
             return super().apply_adjoint(V, mu=mu)
         return np.array(U)
 
-    def apply_inverse_adjoint(self, U, mu=None, initial_guess=None, least_squares=False):
+    def _apply_inverse_adjoint(self, U, mu=None, initial_guess=None, least_squares=False):
         raise NotImplementedError
-        assert U in self.source
         try:
             data = self._prepare_apply(U, mu, 'apply_inverse_adjoint', least_squares=least_squares)
             V = [self._apply_inverse_adjoint_one_vector(u, mu=mu,

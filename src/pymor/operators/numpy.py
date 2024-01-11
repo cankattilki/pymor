@@ -74,19 +74,15 @@ class NumpyGenericOperator(Operator):
         self.__auto_init(locals())
         self.parameters_own = parameters
 
-    def apply(self, U, mu=None):
-        assert U in self.source
-        assert self.parameters.assert_compatible(mu)
+    def _apply(self, U, mu=None):
         if self.parametric:
             return self.range.make_array(self.mapping(U.to_numpy(), mu=mu))
         else:
             return self.range.make_array(self.mapping(U.to_numpy()))
 
-    def apply_adjoint(self, V, mu=None):
+    def _apply_adjoint(self, V, mu=None):
         if self.adjoint_mapping is None:
             raise ValueError('NumpyGenericOperator: adjoint mapping was not defined.')
-        assert V in self.range
-        assert self.parameters.assert_compatible(mu)
         V = V.to_numpy()
         if self.parametric:
             return self.source.make_array(self.adjoint_mapping(V, mu=mu))
@@ -124,19 +120,19 @@ class NumpyMatrixBasedOperator(Operator):
                                    solver_options=self.solver_options,
                                    name=self.name)
 
-    def apply(self, U, mu=None):
+    def _apply(self, U, mu=None):
         return self.assemble(mu).apply(U)
 
-    def apply_adjoint(self, V, mu=None):
+    def _apply_adjoint(self, V, mu=None):
         return self.assemble(mu).apply_adjoint(V)
 
-    def as_range_array(self, mu=None):
+    def _as_range_array(self, mu=None):
         return self.assemble(mu).as_range_array()
 
-    def as_source_array(self, mu=None):
+    def _as_source_array(self, mu=None):
         return self.assemble(mu).as_source_array()
 
-    def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
+    def _apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
         return self.assemble(mu).apply_inverse(V, initial_guess=initial_guess, least_squares=least_squares)
 
     def export_matrix(self, filename, matrix_name=None, output_format='matlab', mu=None):
@@ -226,80 +222,39 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
     def assemble(self, mu=None):
         return self
 
-    def as_range_array(self, mu=None):
+    def _as_range_array(self, mu=None):
         if self.sparse:
             return Operator.as_range_array(self)
         return self.matrix.T.copy()
 
-    def as_source_array(self, mu=None):
+    def _as_source_array(self, mu=None):
         if self.sparse:
             return Operator.as_source_array(self)
         return self.source.from_numpy(self.matrix.copy()).conj()
 
-    def apply(self, U, mu=None):
-        if U.ndim == 1:
-            U = U.reshape((1, -1))
-        assert U.shape[1] == self.dim_source
+    def _apply(self, U, mu=None):
         return self.matrix.dot(U.T).T
 
-    def apply_adjoint(self, V, mu=None):
-        assert V.shape[1] == self.dim_range
+    def _apply_adjoint(self, V, mu=None):
         return self.H.apply(V, mu=mu)
 
-    @defaults('check_finite', 'check_cond', 'default_sparse_solver_backend')
-    def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False,
-                      check_finite=True, check_cond=True, default_sparse_solver_backend='scipy'):
+    @defaults('check_cond', 'default_sparse_solver_backend')
+    def _apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False,
+                       check_cond=True, default_sparse_solver_backend='scipy'):
         """Apply the inverse operator.
 
         Parameters
         ----------
-        V
-            |VectorArray| of vectors to which the inverse operator is applied.
-        mu
-            The |parameter values| for which to evaluate the inverse operator.
-        initial_guess
-            |VectorArray| with the same length as `V` containing initial guesses
-            for the solution.  Some implementations of `apply_inverse` may
-            ignore this parameter.  If `None` a solver-dependent default is used.
-        least_squares
-            If `True`, solve the least squares problem::
-
-                u = argmin ||op(u) - v||_2.
-
-            Since for an invertible operator the least squares solution agrees
-            with the result of the application of the inverse operator,
-            setting this option should, in general, have no effect on the result
-            for those operators. However, note that when no appropriate
-            |solver_options| are set for the operator, most implementations
-            will choose a least squares solver by default which may be
-            undesirable.
-        check_finite
-            Test if solution only contains finite values.
         check_cond
             Check condition number in case the matrix is a |NumPy array|.
         default_sparse_solver_backend
             Default sparse solver backend to use (scipy, generic).
-
-        Returns
-        -------
-        |VectorArray| of the inverse operator evaluations.
-
-        Raises
-        ------
-        InversionError
-            The operator could not be inverted.
         """
-        assert V.shape[1] == self.dim_range
-        assert initial_guess is None or initial_guess.shape[1] == self.dim_source and len(initial_guess) == len(V)
-
         if V.shape[1] == 0:
             if self.dim_source == 0 or least_squares:
                 return np.zeros((len(V), self.dim_source))
             else:
                 raise InversionError
-
-        if self.dim_source != self.dim_range and not least_squares:
-            raise InversionError
 
         options = self.solver_options.get('inverse') if self.solver_options else None
         assert self.sparse or not options
@@ -321,7 +276,7 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
                 raise NotImplementedError
 
             return apply_inverse_impl(self, V, initial_guess=initial_guess, options=options,
-                                      least_squares=least_squares, check_finite=check_finite)
+                                      least_squares=least_squares)
 
         else:
             if least_squares:
@@ -333,7 +288,7 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
             else:
                 if not hasattr(self, '_lu_factor'):
                     try:
-                        self._lu_factor = lu_factor(self.matrix, check_finite=check_finite)
+                        self._lu_factor = lu_factor(self.matrix)
                     except np.linalg.LinAlgError as e:
                         raise InversionError(f'{type(e)!s}: {e!s}') from e
                     if check_cond:
@@ -342,15 +297,11 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
                         if rcond < np.finfo(np.float64).eps:
                             self.logger.warning(f'Ill-conditioned matrix (rcond={rcond:.6g}) in apply_inverse: '
                                                 'result may not be accurate.')
-                R = lu_solve(self._lu_factor, V.T, check_finite=check_finite).T
-
-            if check_finite:
-                if not np.isfinite(np.sum(R)):
-                    raise InversionError('Result contains non-finite values')
+                R = lu_solve(self._lu_factor, V.T).T
 
             return R
 
-    def apply_inverse_adjoint(self, U, mu=None, initial_guess=None, least_squares=False):
+    def _apply_inverse_adjoint(self, U, mu=None, initial_guess=None, least_squares=False):
         return self.H.apply_inverse(U, mu=mu, initial_guess=initial_guess, least_squares=least_squares)
 
     def _assemble_lincomb(self, operators, coefficients, identity_shift=0., solver_options=None, name=None):
@@ -492,13 +443,11 @@ class NumpyCirculantOperator(Operator, CacheableObject):
                 y[i::p] += Y[:self.range.dim // p]
         return y.T
 
-    def apply(self, U, mu=None):
-        assert U in self.source
-        U = U.to_numpy().T
+    def _apply(self, U, mu=None):
+        U = U.T
         return self.range.make_array(self._circular_matvec(U))
 
-    def apply_adjoint(self, V, mu=None):
-        assert V in self.range
+    def _apply_adjoint(self, V, mu=None):
         return self.H.apply(V, mu=mu)
 
     @property
@@ -574,14 +523,12 @@ class NumpyToeplitzOperator(Operator):
         self.source = NumpyVectorSpace(m*r.shape[0], source_id)
         self.range = NumpyVectorSpace(p*c.shape[0], range_id)
 
-    def apply(self, U, mu=None):
-        assert U in self.source
+    def _apply(self, U, mu=None):
         n, _, m = self._circulant._arr.shape
         U = np.concatenate([U.to_numpy().T, np.zeros((n*m - U.dim, len(U)))])
         return self.range.make_array(self._circulant._circular_matvec(U)[:, :self.range.dim])
 
-    def apply_adjoint(self, V, mu=None):
-        assert V in self.range
+    def _apply_adjoint(self, V, mu=None):
         return self.H.apply(V, mu=mu)
 
     @property
@@ -661,8 +608,7 @@ class NumpyHankelOperator(Operator):
         self.source = NumpyVectorSpace(l*m, source_id)
         self.range = NumpyVectorSpace(k*p, range_id)
 
-    def apply(self, U, mu=None):
-        assert U in self.source
+    def _apply(self, U, mu=None):
         U = U.to_numpy().T
         n, p, m = self._circulant._arr.shape
         x = np.zeros((n*m, U.shape[1]), dtype=U.dtype)
@@ -670,8 +616,7 @@ class NumpyHankelOperator(Operator):
             x[:self.source.dim][j::m] = np.flip(U[j::m], axis=0)
         return self.range.make_array(self._circulant._circular_matvec(x)[:, :self.range.dim])
 
-    def apply_adjoint(self, V, mu=None):
-        assert V in self.range
+    def _apply_adjoint(self, V, mu=None):
         return self.H.apply(V, mu=mu)
 
     @property

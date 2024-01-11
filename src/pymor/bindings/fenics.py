@@ -21,125 +21,6 @@ from pymor.operators.interface import Operator
 from pymor.operators.list import LinearComplexifiedListVectorArrayOperatorBase
 from pymor.operators.numpy import NumpyMatrixOperator
 
-# @unpicklable
-# class FenicsVector(CopyOnWriteVector):
-#     """Wraps a FEniCS vector to make it usable with ListVectorArray."""
-
-#     def __init__(self, impl):
-#         self.impl = impl
-
-#     @classmethod
-#     def from_instance(cls, instance):
-#         return cls(instance.impl)
-
-#     def _copy_data(self):
-#         self.impl = self.impl.copy()
-
-#     def to_numpy(self, ensure_copy=False):
-#         return self.impl.get_local()  # always returns a copy
-
-#     def _scal(self, alpha):
-#         self.impl *= alpha
-
-#     def _axpy(self, alpha, x):
-#         if x is self:
-#             self.scal(1. + alpha)
-#         else:
-#             self.impl.axpy(alpha, x.impl)
-
-#     def inner(self, other):
-#         return self.impl.inner(other.impl)
-
-#     def norm(self):
-#         return self.impl.norm('l2')
-
-#     def norm2(self):
-#         return self.impl.norm('l2') ** 2
-
-#     def sup_norm(self):
-#         return self.impl.norm('linf')
-
-#     def dofs(self, dof_indices):
-#         dof_indices = np.array(dof_indices, dtype=np.intc)
-#         if len(dof_indices) == 0:
-#             return np.array([], dtype=np.intc)
-#         assert 0 <= np.min(dof_indices)
-#         assert np.max(dof_indices) < self.impl.size()
-#         dofs = self.impl.gather(dof_indices)
-#         # in the mpi distributed case, gather returns the values
-#         # at the *global* dof_indices on each rank
-#         return dofs
-
-#     def amax(self):
-#         raise NotImplementedError  # is implemented for complexified vector
-
-#     def __add__(self, other):
-#         return FenicsVector(self.impl + other.impl)
-
-#     def __iadd__(self, other):
-#         self._copy_data_if_needed()
-#         self.impl += other.impl
-#         return self
-
-#     __radd__ = __add__
-
-#     def __sub__(self, other):
-#         return FenicsVector(self.impl - other.impl)
-
-#     def __isub__(self, other):
-#         self._copy_data_if_needed()
-#         self.impl -= other.impl
-#         return self
-
-#     def __mul__(self, other):
-#         return FenicsVector(self.impl * other)
-
-#     def __neg__(self):
-#         return FenicsVector(-self.impl)
-
-
-# class FenicsVectorSpace(ComplexifiedListVectorSpace):
-
-#     real_vector_type = FenicsVector
-#     vector_type = ComplexifiedFenicsVector
-
-#     def __init__(self, V, id='STATE'):
-#         self.__auto_init(locals())
-
-#     @property
-#     def dim(self):
-#         return df.Function(self.V).vector().size()
-
-#     def __eq__(self, other):
-#         return type(other) is FenicsVectorSpace and self.V == other.V and self.id == other.id
-
-#     # since we implement __eq__, we also need to implement __hash__
-#     def __hash__(self):
-#         return id(self.V) + hash(self.id)
-
-#     def real_zero_vector(self):
-#         impl = df.Function(self.V).vector()
-#         return FenicsVector(impl)
-
-#     def real_full_vector(self, value):
-#         impl = df.Function(self.V).vector()
-#         impl += value
-#         return FenicsVector(impl)
-
-#     def real_random_vector(self, distribution, **kwargs):
-#         impl = df.Function(self.V).vector()
-#         values = _create_random_values(impl.local_size(), distribution, **kwargs)
-#         impl[:] = np.ascontiguousarray(values)
-#         return FenicsVector(impl)
-
-#     def real_vector_from_numpy(self, data, ensure_copy=False):
-#         impl = df.Function(self.V).vector()
-#         impl[:] = np.ascontiguousarray(data)
-#         return FenicsVector(impl)
-
-#     def real_make_vector(self, obj):
-#         return FenicsVector(obj)
-
 
 class FenicsMatrixBasedOperator(Operator):
     """Wraps a parameterized FEniCS linear or bilinear form as an |Operator|.
@@ -184,8 +65,7 @@ class FenicsMatrixBasedOperator(Operator):
             self.dim_source = 1
         self.parameters_own = {k: len(v) for k, v in params.items()}
 
-    def assemble(self, mu=None):
-        assert self.parameters.assert_compatible(mu)
+    def _assemble(self, mu=None):
         # update coefficients in form
         for k, coeffs in self.params.items():
             for c, v in zip(coeffs, mu[k]):
@@ -206,19 +86,19 @@ class FenicsMatrixBasedOperator(Operator):
             V = mat.get_local().reshape((1,-1))
             return VectorOperator(V)
 
-    def apply(self, U, mu=None):
+    def _apply(self, U, mu=None):
         return self.assemble(mu).apply(U)
 
-    def apply_adjoint(self, V, mu=None):
+    def _apply_adjoint(self, V, mu=None):
         return self.assemble(mu).apply_adjoint(V)
 
-    def as_range_array(self, mu=None):
+    def _as_range_array(self, mu=None):
         return self.assemble(mu).as_range_array()
 
-    def as_source_array(self, mu=None):
+    def _as_source_array(self, mu=None):
         return self.assemble(mu).as_source_array()
 
-    def apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
+    def _apply_inverse(self, V, mu=None, initial_guess=None, least_squares=False):
         return self.assemble(mu).apply_inverse(V, initial_guess=initial_guess, least_squares=least_squares)
 
 
@@ -260,7 +140,7 @@ class FenicsMatrixOperator(LinearComplexifiedListVectorArrayOperatorBase):
             solver = df.KrylovSolver(matrix, method, preconditioner)
         return solver
 
-    def _apply_inverse(self, r, v, adjoint=False):
+    def _apply_inverse_impl(self, r, v, adjoint=False):
         try:
             solver = self._adjoint_solver if adjoint else self._solver
         except AttributeError:
@@ -293,7 +173,7 @@ class FenicsMatrixOperator(LinearComplexifiedListVectorArrayOperatorBase):
         else:
             self.source_vec[:] = np.ascontiguousarray(initial_guess)
         self.range_vec[:] = np.ascontiguousarray(v)
-        self._apply_inverse(self.source_vec, self.range_vec)
+        self._apply_inverse_impl(self.source_vec, self.range_vec)
         return self.source_vec.get_local()
 
     def _real_apply_inverse_adjoint_one_vector(self, u, mu=None, initial_guess=None,
@@ -310,7 +190,7 @@ class FenicsMatrixOperator(LinearComplexifiedListVectorArrayOperatorBase):
             self._matrix_transpose = self.matrix.copy()
             mat_tr = df.as_backend_type(self._matrix_transpose).mat()
             mat_tr.transpose()
-        self._apply_inverse(r.impl, u.impl, adjoint=True)
+        self._apply_inverse_impl(r.impl, u.impl, adjoint=True)
         return r
 
     def _assemble_lincomb(self, operators, coefficients, identity_shift=0., solver_options=None, name=None):
