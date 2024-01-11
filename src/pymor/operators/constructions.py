@@ -10,6 +10,7 @@ from numbers import Number
 import numpy as np
 import scipy.linalg as spla
 
+from pymor.algorithms.basic import inner
 from pymor.core.defaults import defaults
 from pymor.core.exceptions import InversionError
 from pymor.operators.interface import Operator
@@ -803,11 +804,11 @@ class VectorArrayOperator(Operator):
 
         self.__auto_init(locals())
         if adjoint:
-            self.source = array.space
-            self.range = NumpyVectorSpace(len(array), space_id)
+            self.dim_source = array.shape[1]
+            self.dim_range = len(array)
         else:
-            self.source = NumpyVectorSpace(len(array), space_id)
-            self.range = array.space
+            self.dim_source = len(array)
+            self.dim_range = array.shape[1]
 
     @property
     def H(self):
@@ -838,11 +839,13 @@ class VectorArrayOperator(Operator):
         return U
 
     def apply_adjoint(self, V, mu=None):
-        assert V in self.range
+        if V.ndim == 1:
+            V = V.reshape((-1, 1))
+        assert V.shape[1] == self.dim_range
         if not self.adjoint:
-            return self.source.make_array(self.array.inner(V).T)
+            return inner(self.array, V).T
         else:
-            return self.array.lincomb(V.to_numpy())
+            return self.array @ V
 
     def apply_inverse_adjoint(self, U, mu=None, initial_guess=None, least_squares=False):
         adjoint_op = VectorArrayOperator(self.array, adjoint=not self.adjoint)
@@ -894,7 +897,9 @@ class VectorOperator(VectorArrayOperator):
     dim_source = 1
 
     def __init__(self, vector, name=None):
-        assert isinstance(vector, VectorArray)
+        assert isinstance(vector, np.ndarray)
+        if vector.ndim == 1:
+            vector = vector.reshape((1, -1))
         assert len(vector) == 1
         super().__init__(vector, adjoint=False, name=name)
         self.vector = self.array  # do not init with vector arg, as vector gets copied in VectorArrayOperator.__init__

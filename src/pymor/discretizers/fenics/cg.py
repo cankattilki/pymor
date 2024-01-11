@@ -12,7 +12,7 @@ import dolfin as df
 from pymor.algorithms.preassemble import preassemble as preassemble_
 from pymor.analyticalproblems.elliptic import StationaryProblem
 from pymor.analyticalproblems.functions import LincombFunction
-from pymor.bindings.fenics import FenicsMatrixBasedOperator, FenicsVectorSpace, FenicsVisualizer
+from pymor.bindings.fenics import FenicsMatrixBasedOperator, FenicsVisualizer
 from pymor.discretizers.fenics.domaindiscretizer import discretize_domain
 from pymor.models.basic import StationaryModel
 from pymor.operators.block import BlockColumnOperator
@@ -156,7 +156,7 @@ def discretize_stationary_cg(analytical_problem, diameter=None, degree=1, preass
         output_functional = None
 
     m = StationaryModel(L, F, output_functional=output_functional, products=products,
-                        visualizer=FenicsVisualizer(FenicsVectorSpace(V)),
+                        visualizer=FenicsVisualizer(V),
                         name=f'{p.name}_CG')
 
     data = {
